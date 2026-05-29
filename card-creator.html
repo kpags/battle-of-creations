@@ -455,6 +455,98 @@
                 </label>
               </fieldset>
 
+              <fieldset class="creator-fieldset" data-trap-effect-fieldset hidden>
+                <legend>Trap Effect</legend>
+
+                <label class="creator-field compact">
+                  <span>Effect</span>
+                  <select name="trapEffect" data-card-field data-trap-effect-select>
+                    <option value="">Select an Effect</option>
+                    <option value="negate-attack">Negate an attack from an opponent's monster</option>
+                    <option value="negate-attack-damage">Negate an attack then inflict damage equal to the negated attack points</option>
+                    <option value="destroy-on-summon">Destroy monsters when opponent normal or special summons</option>
+                    <option value="destroy-on-attack">Destroy a monster when the opponent attacks</option>
+                    <option value="destroy-weaker">Destroy weaker monsters when opponent summons</option>
+                    <option value="negate-effect">Negate a card effect from the opponent</option>
+                    <option value="negate-effect-destroy">Negate a card effect then destroy that card</option>
+                    <option value="destroy-on-effect">Destroy an opponent's monster when they use a card effect</option>
+                    <option value="negate-summon">Negate a summon and return it to hand or deck</option>
+                    <option value="boost-on-attack">Increase a monster's attack or defense when attacked</option>
+                    <option value="decrease-attacker">Decrease the attacking monster's attack points</option>
+                  </select>
+                </label>
+
+                <div class="effect-param-panel" data-trap-param-panel hidden>
+                  <span>Effect Options</span>
+                  <div class="effect-param-grid">
+                    <label class="creator-field compact" data-trap-param-field="trapDestroyCount" hidden>
+                      <span>Number of Monsters</span>
+                      <select name="trapDestroyCount" data-card-field>
+                        <option value="1">1</option>
+                        <option value="2">2</option>
+                      </select>
+                    </label>
+
+                    <label class="creator-field compact" data-trap-param-field="trapSummonDest" hidden>
+                      <span>Return To</span>
+                      <select name="trapSummonDest" data-card-field>
+                        <option value="hand">Hand</option>
+                        <option value="deck">Deck</option>
+                      </select>
+                    </label>
+
+                    <label class="creator-field compact" data-trap-param-field="trapStatType" hidden>
+                      <span>Stat</span>
+                      <select name="trapStatType" data-card-field data-trap-stat-type>
+                        <option value="attack">Attack</option>
+                        <option value="defense">Defense</option>
+                      </select>
+                    </label>
+
+                    <label class="creator-field compact" data-trap-param-field="trapAtkBoost" hidden>
+                      <span>Amount</span>
+                      <select name="trapAtkBoost" data-card-field>
+                        <option value="100">100</option>
+                        <option value="200">200</option>
+                        <option value="300">300</option>
+                        <option value="400">400</option>
+                        <option value="500">500</option>
+                      </select>
+                    </label>
+
+                    <label class="creator-field compact" data-trap-param-field="trapDefBoost" hidden>
+                      <span>Amount</span>
+                      <select name="trapDefBoost" data-card-field>
+                        <option value="100">100</option>
+                        <option value="200">200</option>
+                        <option value="300">300</option>
+                        <option value="400">400</option>
+                        <option value="500">500</option>
+                        <option value="600">600</option>
+                        <option value="700">700</option>
+                      </select>
+                    </label>
+
+                    <label class="creator-field compact" data-trap-param-field="trapAtkDecrease" hidden>
+                      <span>Amount</span>
+                      <select name="trapAtkDecrease" data-card-field>
+                        <option value="100">100</option>
+                        <option value="200">200</option>
+                        <option value="300">300</option>
+                        <option value="400">400</option>
+                        <option value="500">500</option>
+                      </select>
+                    </label>
+                  </div>
+                </div>
+
+                <label class="creator-field compact" data-trap-description-field>
+                  <span>Short Effect Description</span>
+                  <textarea name="trapDescription" maxlength="300" rows="3" readonly data-card-field></textarea>
+                  <small><span data-trap-effect-count>0</span>/300</small>
+                </label>
+              </fieldset>
+
               <div class="creator-actions">
                 <button class="creator-reset" type="reset">Reset</button>
                 <button class="creator-save" type="submit">Save Card</button>

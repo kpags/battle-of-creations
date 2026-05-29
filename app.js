@@ -470,6 +470,10 @@ if (cardLibrary) {
       return String(card.spellEffectDescription || "No effect has been selected for this spell card.");
     }
 
+    if (cardType(card) === "trap") {
+      return String(card.trapEffectDescription || "No effect has been selected for this trap card.");
+    }
+
     return cardEffectDescription(card);
   }
 
@@ -886,6 +890,11 @@ if (cardLibrary) {
         ["Effect", selectedCard.spellEffectLabel || selectedCard.spellEffect || "None"],
         ["Effect Description", selectedCard.spellEffectDescription || "None"]
       );
+    } else if (selectedType === "trap") {
+      rows.push(
+        ["Effect", selectedCard.trapEffectLabel || selectedCard.trapEffect || "None"],
+        ["Effect Description", selectedCard.trapEffectDescription || "None"]
+      );
     }
 
     rows.push(["Created On", cardCreatedAt(selectedCard)]);
@@ -1057,6 +1066,13 @@ if (cardCreator) {
   const spellParamFields = Array.from(cardCreator.querySelectorAll("[data-spell-param-field]"));
   const spellDescriptionField = cardCreator.querySelector("[data-spell-description-field]");
   const spellEffectCount = cardCreator.querySelector("[data-spell-effect-count]");
+  const trapEffectFieldset = cardCreator.querySelector("[data-trap-effect-fieldset]");
+  const trapEffectSelect = cardCreator.querySelector("[data-trap-effect-select]");
+  const trapStatTypeSelect = cardCreator.querySelector("[data-trap-stat-type]");
+  const trapParamPanel = cardCreator.querySelector("[data-trap-param-panel]");
+  const trapParamFields = Array.from(cardCreator.querySelectorAll("[data-trap-param-field]"));
+  const trapDescriptionField = cardCreator.querySelector("[data-trap-description-field]");
+  const trapEffectCount = cardCreator.querySelector("[data-trap-effect-count]");
   const creatorMessage = cardCreator.querySelector("[data-creator-message]");
   const saveButton = cardCreator.querySelector(".creator-save");
   const creatorTitle = cardCreator.querySelector(".creator-header h1");
@@ -1265,6 +1281,13 @@ if (cardCreator) {
     "restrict-opponent": ["restrictTurns"]
   };
 
+  const TRAP_EFFECT_BASE_PARAMS = {
+    "destroy-on-summon": ["trapDestroyCount"],
+    "negate-summon": ["trapSummonDest"],
+    "boost-on-attack": ["trapStatType"],
+    "decrease-attacker": ["trapAtkDecrease"]
+  };
+
   function buildSpellEffectDescription() {
     const effect = spellEffectSelect?.value || "";
     const statType = spellStatTypeSelect?.value || "attack";
@@ -1336,6 +1359,80 @@ if (cardCreator) {
     }
   }
 
+  function buildTrapEffectDescription() {
+    const effect = trapEffectSelect?.value || "";
+    const statType = trapStatTypeSelect?.value || "attack";
+
+    switch (effect) {
+      case "negate-attack":
+        return "Negate an attack from an opponent's monster.";
+      case "negate-attack-damage":
+        return "Negate an attack then inflict damage to the opponent's life points equal to the negated attack points.";
+      case "destroy-on-summon": {
+        const count = getField("trapDestroyCount")?.value || "1";
+        return count === "1"
+          ? "When the opponent normal or special summons a monster, select and destroy 1 monster they control, aside from the summoned monster."
+          : "When the opponent normal or special summons a monster, select and destroy up to 2 monsters they control, aside from the summoned monster.";
+      }
+      case "destroy-on-attack":
+        return "When the opponent initiated an attack, select and destroy a monster they control, except the attacking monster.";
+      case "destroy-weaker":
+        return "When the opponent summons a monster, destroy other monsters they control that have attack points lower than the summoned monster. If nothing exists, destroy the summoned monster instead.";
+      case "negate-effect":
+        return "Negate a card effect from the opponent.";
+      case "negate-effect-destroy":
+        return "Negate a card effect from the opponent then destroy that card.";
+      case "destroy-on-effect":
+        return "Destroy an opponent's monster when they use a card effect.";
+      case "negate-summon": {
+        const dest = getField("trapSummonDest")?.value || "hand";
+        return `Negate a summon from the opponent then return it to their ${dest}.`;
+      }
+      case "boost-on-attack": {
+        const amount = statType === "defense"
+          ? getField("trapDefBoost")?.value || "100"
+          : getField("trapAtkBoost")?.value || "100";
+        return `Increase the ${statType} of a monster you control by ${amount} when attacked by the opponent.`;
+      }
+      case "decrease-attacker": {
+        const amount = getField("trapAtkDecrease")?.value || "100";
+        return `When an opponent's monster attacked, decrease the attack points of the attacking monster by ${amount}.`;
+      }
+      default:
+        return "";
+    }
+  }
+
+  function updateTrapEffectParams() {
+    const effect = trapEffectSelect?.value || "";
+    const statType = trapStatTypeSelect?.value || "attack";
+    const baseParams = TRAP_EFFECT_BASE_PARAMS[effect] || [];
+    const visibleParams = new Set(baseParams);
+
+    if (effect === "boost-on-attack") {
+      visibleParams.add(statType === "defense" ? "trapDefBoost" : "trapAtkBoost");
+    }
+
+    trapParamFields.forEach((field) => {
+      field.hidden = !visibleParams.has(field.dataset.trapParamField);
+    });
+
+    if (trapParamPanel) {
+      trapParamPanel.hidden = visibleParams.size === 0;
+    }
+
+    const description = buildTrapEffectDescription();
+    const descriptionTextarea = getField("trapDescription");
+
+    if (descriptionTextarea) {
+      descriptionTextarea.value = description;
+    }
+
+    if (trapEffectCount) {
+      trapEffectCount.textContent = String(description.length);
+    }
+  }
+
   function updateSpellEffectParams() {
     const effect = spellEffectSelect?.value || "";
     const statType = spellStatTypeSelect?.value || "attack";
@@ -1389,6 +1486,14 @@ if (cardCreator) {
 
     if (cardTypeValue === "spell") {
       updateSpellEffectParams();
+    }
+
+    if (trapEffectFieldset) {
+      trapEffectFieldset.hidden = cardTypeValue !== "trap";
+    }
+
+    if (cardTypeValue === "trap") {
+      updateTrapEffectParams();
     }
 
     if (cardOptionsLegend) {
@@ -1697,6 +1802,15 @@ if (cardCreator) {
       setFieldValue("spellSendCount", card.spellEffectParams.sendCount || "1");
       setFieldValue("spellRestrictTurns", card.spellEffectParams.restrictTurns || "1");
     }
+    if (card.cardType === "trap" && card.trapEffectParams) {
+      setFieldValue("trapEffect", card.trapEffect || "");
+      setFieldValue("trapDestroyCount", card.trapEffectParams.destroyCount || "1");
+      setFieldValue("trapSummonDest", card.trapEffectParams.summonDest || "hand");
+      setFieldValue("trapStatType", card.trapEffectParams.statType || "attack");
+      setFieldValue("trapAtkBoost", card.trapEffectParams.atkBoost || "100");
+      setFieldValue("trapDefBoost", card.trapEffectParams.defBoost || "100");
+      setFieldValue("trapAtkDecrease", card.trapEffectParams.atkDecrease || "100");
+    }
     applyStoredArtwork(card);
     renderLevelButtons();
     filterEffectOptions(cardEffectTemplate(card));
@@ -1784,9 +1898,11 @@ if (cardCreator) {
     const defense = clampStat(getField("defense")?.value);
     const displayDescription = cardType === "spell"
       ? buildSpellEffectDescription() || "No effect has been selected for this spell card."
-      : usesEffectFields(cardType, monsterType)
-        ? effectDescription
-        : shortDescription;
+      : cardType === "trap"
+        ? buildTrapEffectDescription() || "No effect has been selected for this trap card."
+        : usesEffectFields(cardType, monsterType)
+          ? effectDescription
+          : shortDescription;
 
     previewCard.classList.remove("card-kind-monster", "card-kind-spell", "card-kind-trap");
     previewCard.classList.add(`card-kind-${cardType}`);
@@ -1880,8 +1996,9 @@ if (cardCreator) {
     const draftCardType = getCheckedValue("cardType") || "monster";
     const draftMonsterType = draftCardType === "monster" ? getCheckedValue("monsterType") || "Effect" : "";
     const isSpell = draftCardType === "spell";
-    const shouldUseEffectDescription = !isSpell && usesEffectFields(draftCardType, draftMonsterType);
-    const shouldUseEffectUsage = !isSpell && usesEffectUsage(draftCardType, draftMonsterType);
+    const isTrap = draftCardType === "trap";
+    const shouldUseEffectDescription = !isSpell && !isTrap && usesEffectFields(draftCardType, draftMonsterType);
+    const shouldUseEffectUsage = !isSpell && !isTrap && usesEffectUsage(draftCardType, draftMonsterType);
     if (shouldUseEffectDescription && !validateEffectLevelRange(false)) {
       form?.reportValidity();
       if (creatorMessage) {
@@ -1930,6 +2047,17 @@ if (cardCreator) {
         restrictTurns: getField("spellRestrictTurns")?.value || "1"
       } : {},
       spellEffectDescription: isSpell ? buildSpellEffectDescription() : "",
+      trapEffect: isTrap ? (getField("trapEffect")?.value || "") : "",
+      trapEffectLabel: isTrap ? (trapEffectSelect?.options[trapEffectSelect?.selectedIndex]?.text || "") : "",
+      trapEffectParams: isTrap ? {
+        destroyCount: getField("trapDestroyCount")?.value || "1",
+        summonDest: getField("trapSummonDest")?.value || "hand",
+        statType: getField("trapStatType")?.value || "attack",
+        atkBoost: getField("trapAtkBoost")?.value || "100",
+        defBoost: getField("trapDefBoost")?.value || "100",
+        atkDecrease: getField("trapAtkDecrease")?.value || "100"
+      } : {},
+      trapEffectDescription: isTrap ? buildTrapEffectDescription() : "",
       savedAt: new Date().toISOString()
     };
 
