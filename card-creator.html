@@ -76,7 +76,7 @@
                 <span class="art-beast" aria-hidden="true"></span>
               </div>
 
-              <div class="preview-meta">
+              <div class="preview-meta" data-preview-meta>
                 <div class="preview-level">
                   <span>Level</span>
                   <div class="preview-stars" data-preview-stars aria-label="Level 8"></div>
@@ -94,7 +94,7 @@
                 </p>
               </section>
 
-              <footer class="preview-stats">
+              <footer class="preview-stats" data-preview-stats>
                 <strong class="preview-stat preview-attack">
                   <img src="assets/icons/atk_points_icon.png" alt="" aria-hidden="true">
                   <span data-preview-attack>3500</span>
@@ -170,7 +170,7 @@
                 </div>
               </fieldset>
 
-              <fieldset class="creator-fieldset">
+              <fieldset class="creator-fieldset" data-card-options-fieldset>
                 <legend data-card-options-legend>Monster Options</legend>
                 <div class="level-row" role="group" aria-label="Card level">
                   <span>Level (1-10)</span>
@@ -189,21 +189,21 @@
                 </div>
               </fieldset>
 
-              <fieldset class="creator-fieldset">
+              <fieldset class="creator-fieldset" data-combat-stats-fieldset>
                 <legend>Combat Stats</legend>
                 <div class="stat-grid">
                   <label class="creator-field compact">
                     <span>Attack Points</span>
-                    <input type="number" name="attack" min="0" max="9999" step="50" value="3500" data-card-field>
+                    <input type="number" name="attack" min="0" max="4000" step="50" value="3500" placeholder="Max: 4000" data-card-field>
                   </label>
                   <label class="creator-field compact">
                     <span>Defense Points</span>
-                    <input type="number" name="defense" min="0" max="9999" step="50" value="2800" data-card-field>
+                    <input type="number" name="defense" min="0" max="4000" step="50" value="2800" placeholder="Max: 4000" data-card-field>
                   </label>
                 </div>
               </fieldset>
 
-              <fieldset class="creator-fieldset">
+              <fieldset class="creator-fieldset" data-effect-description-fieldset>
                 <legend data-description-legend>Effect / Description</legend>
                 <div class="effect-builder-grid" data-effect-builder-fields>
                   <label class="creator-field compact">
@@ -318,6 +318,140 @@
                   <span>Short Description</span>
                   <textarea name="shortDescription" maxlength="300" rows="3" data-card-field>Born with great hatred to the world. Nobody survives as it strives the path of destruction. Even if the choice is to run away when seen, it will still not be effective. The only option is to die.</textarea>
                   <small><span data-description-count>197</span>/300</small>
+                </label>
+              </fieldset>
+
+              <fieldset class="creator-fieldset" data-spell-effect-fieldset hidden>
+                <legend>Spell Effect</legend>
+
+                <label class="creator-field compact">
+                  <span>Effect</span>
+                  <select name="spellEffect" data-card-field data-spell-effect-select>
+                    <option value="">Select an Effect</option>
+                    <option value="special-summon">Special Summon Level 1 to 4 Monster</option>
+                    <option value="draw">Draw X Cards</option>
+                    <option value="destroy-opponent-cards">Destroy Opponent's Cards in the Field</option>
+                    <option value="increase-stat">Increase Attack or Defense of a Monster</option>
+                    <option value="destroy-opponent-monsters">Destroy Opponent's Monsters in the Field</option>
+                    <option value="destroy-all-monsters">Destroy All Opponent's Monsters in the Field</option>
+                    <option value="destroy-all-spell-trap">Destroy All Opponent's Spell and Trap Cards</option>
+                    <option value="revive">Revive a Monster from Player's Graveyard</option>
+                    <option value="increase-lp">Increase Player's Life Points</option>
+                    <option value="decrease-lp">Decrease Opponent's Life Points</option>
+                    <option value="return-graveyard">Return Cards from Graveyard to Deck/Hand</option>
+                    <option value="send-to-graveyard">Send Cards from Opponent's Hand to Graveyard</option>
+                    <option value="restrict-monster">Restrict Opponent's Monster from Attacking</option>
+                    <option value="restrict-opponent">Restrict Opponent from Attacking</option>
+                  </select>
+                </label>
+
+                <div class="effect-param-panel" data-spell-param-panel hidden>
+                  <span>Effect Options</span>
+                  <div class="effect-param-grid">
+                    <label class="creator-field compact" data-spell-param-field="drawCount" hidden>
+                      <span>Number of Cards</span>
+                      <select name="spellDrawCount" data-card-field>
+                        <option value="1">1</option>
+                        <option value="2">2</option>
+                      </select>
+                    </label>
+
+                    <label class="creator-field compact" data-spell-param-field="destroyCount" hidden>
+                      <span>Number of Cards</span>
+                      <select name="spellDestroyCount" data-card-field>
+                        <option value="1">1</option>
+                        <option value="2">2</option>
+                      </select>
+                    </label>
+
+                    <label class="creator-field compact" data-spell-param-field="statType" hidden>
+                      <span>Stat</span>
+                      <select name="spellStatType" data-card-field data-spell-stat-type>
+                        <option value="attack">Attack</option>
+                        <option value="defense">Defense</option>
+                      </select>
+                    </label>
+
+                    <label class="creator-field compact" data-spell-param-field="atkAmount" hidden>
+                      <span>Amount</span>
+                      <select name="spellAtkAmount" data-card-field>
+                        <option value="100">100</option>
+                        <option value="200">200</option>
+                        <option value="300">300</option>
+                        <option value="400">400</option>
+                        <option value="500">500</option>
+                        <option value="600">600</option>
+                        <option value="700">700</option>
+                      </select>
+                    </label>
+
+                    <label class="creator-field compact" data-spell-param-field="defAmount" hidden>
+                      <span>Amount</span>
+                      <select name="spellDefAmount" data-card-field>
+                        <option value="100">100</option>
+                        <option value="200">200</option>
+                        <option value="300">300</option>
+                        <option value="400">400</option>
+                        <option value="500">500</option>
+                        <option value="600">600</option>
+                        <option value="700">700</option>
+                        <option value="800">800</option>
+                        <option value="900">900</option>
+                        <option value="1000">1000</option>
+                      </select>
+                    </label>
+
+                    <label class="creator-field compact" data-spell-param-field="lpAmount" hidden>
+                      <span>Amount</span>
+                      <select name="spellLpAmount" data-card-field>
+                        <option value="500">500</option>
+                        <option value="600">600</option>
+                        <option value="700">700</option>
+                        <option value="800">800</option>
+                        <option value="900">900</option>
+                        <option value="1000">1000</option>
+                      </select>
+                    </label>
+
+                    <label class="creator-field compact" data-spell-param-field="graveyardType" hidden>
+                      <span>Card Type</span>
+                      <select name="spellGraveyardType" data-card-field>
+                        <option value="monster">Monster</option>
+                        <option value="spell">Spell</option>
+                        <option value="trap">Trap</option>
+                      </select>
+                    </label>
+
+                    <label class="creator-field compact" data-spell-param-field="graveyardDest" hidden>
+                      <span>Destination</span>
+                      <select name="spellGraveyardDest" data-card-field>
+                        <option value="deck">Deck</option>
+                        <option value="hand">Hand</option>
+                      </select>
+                    </label>
+
+                    <label class="creator-field compact" data-spell-param-field="sendCount" hidden>
+                      <span>Number of Cards</span>
+                      <select name="spellSendCount" data-card-field>
+                        <option value="1">1</option>
+                        <option value="2">2</option>
+                      </select>
+                    </label>
+
+                    <label class="creator-field compact" data-spell-param-field="restrictTurns" hidden>
+                      <span>Number of Turns</span>
+                      <select name="spellRestrictTurns" data-card-field>
+                        <option value="1">1</option>
+                        <option value="2">2</option>
+                      </select>
+                    </label>
+                  </div>
+                </div>
+
+                <label class="creator-field compact" data-spell-description-field>
+                  <span>Short Effect Description</span>
+                  <textarea name="spellDescription" maxlength="300" rows="3" readonly data-card-field></textarea>
+                  <small><span data-spell-effect-count>0</span>/300</small>
                 </label>
               </fieldset>
 

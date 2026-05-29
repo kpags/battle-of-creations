@@ -466,6 +466,10 @@ if (cardLibrary) {
       return String(card.shortDescription || "No short description has been written for this card yet.");
     }
 
+    if (cardType(card) === "spell") {
+      return String(card.spellEffectDescription || "No effect has been selected for this spell card.");
+    }
+
     return cardEffectDescription(card);
   }
 
@@ -598,6 +602,11 @@ if (cardLibrary) {
     defense.append(defenseIcon, defenseText);
     stats.append(attack, defense);
 
+    if (type !== "monster") {
+      meta.hidden = true;
+      stats.hidden = true;
+    }
+
     preview.append(
       cornerOne,
       cornerTwo,
@@ -670,7 +679,11 @@ if (cardLibrary) {
     defense.append(defenseIcon, document.createTextNode(String(card.defense ?? 0)));
     stats.append(attack, defense);
 
-    button.append(title, createArtElement("mini-card-art", card), level, stats);
+    const miniCardChildren = [title, createArtElement("mini-card-art", card)];
+    if (type === "monster") {
+      miniCardChildren.push(level, stats);
+    }
+    button.append(...miniCardChildren);
     article.append(selector, button);
     return article;
   }
@@ -842,29 +855,32 @@ if (cardLibrary) {
 
     const facts = document.createElement("dl");
     const selectedType = cardType(selectedCard);
-    const rows = [
-      ["Card Type", CARD_TYPE_LABELS[selectedType]],
-      ["Level", String(clampCardLevel(selectedCard.level))],
-      ["Attack Points", String(selectedCard.attack ?? 0)],
-      ["Defense Points", String(selectedCard.defense ?? 0)]
-    ];
+    const rows = [["Card Type", CARD_TYPE_LABELS[selectedType]]];
 
     if (selectedType === "monster") {
-      rows.splice(1, 0, ["Monster Type", monsterType(selectedCard)]);
+      rows.push(
+        ["Monster Type", monsterType(selectedCard)],
+        ["Level", String(clampCardLevel(selectedCard.level))],
+        ["Attack Points", String(selectedCard.attack ?? 0)],
+        ["Defense Points", String(selectedCard.defense ?? 0)]
+      );
     }
 
-    if (isEffectMonster(selectedCard) || selectedType !== "monster") {
+    if (isEffectMonster(selectedCard)) {
       rows.push(
         ["Effect Type", selectedCard.effect || "None"],
         ["Cause", selectedCard.effectCause || DEFAULT_EFFECT_CAUSE],
         ["Effects", cardEffectOutcome(selectedCard)],
-        ...(isEffectMonster(selectedCard)
-          ? [["Usage", selectedCard.effectOncePerTurn ? "Once per turn" : "Once after summoned"]]
-          : []),
+        ["Usage", selectedCard.effectOncePerTurn ? "Once per turn" : "Once after summoned"],
         ["Short Effect Description", cardEffectDescription(selectedCard)]
       );
     } else if (isNormalMonster(selectedCard)) {
       rows.push(["Short Description", selectedCard.shortDescription || "None"]);
+    } else if (selectedType === "spell") {
+      rows.push(
+        ["Effect", selectedCard.spellEffectLabel || selectedCard.spellEffect || "None"],
+        ["Effect Description", selectedCard.spellEffectDescription || "None"]
+      );
     }
 
     rows.push(["Created On", cardCreatedAt(selectedCard)]);
@@ -1015,6 +1031,11 @@ if (cardCreator) {
   const effectCount = cardCreator.querySelector("[data-effect-count]");
   const descriptionCount = cardCreator.querySelector("[data-description-count]");
   const cardOptionsLegend = cardCreator.querySelector("[data-card-options-legend]");
+  const cardOptionsFieldset = cardCreator.querySelector("[data-card-options-fieldset]");
+  const combatStatsFieldset = cardCreator.querySelector("[data-combat-stats-fieldset]");
+  const effectDescriptionFieldset = cardCreator.querySelector("[data-effect-description-fieldset]");
+  const previewMetaEl = cardCreator.querySelector("[data-preview-meta]");
+  const previewStatsEl = cardCreator.querySelector("[data-preview-stats]");
   const monsterTypeField = cardCreator.querySelector("[data-monster-type-field]");
   const descriptionLegend = cardCreator.querySelector("[data-description-legend]");
   const effectTypeField = cardCreator.querySelector("[data-effect-type-field]");
@@ -1024,6 +1045,13 @@ if (cardCreator) {
   const effectUsageField = cardCreator.querySelector("[data-effect-usage-field]");
   const effectDescriptionField = cardCreator.querySelector("[data-effect-description-field]");
   const shortDescriptionField = cardCreator.querySelector("[data-short-description-field]");
+  const spellEffectFieldset = cardCreator.querySelector("[data-spell-effect-fieldset]");
+  const spellEffectSelect = cardCreator.querySelector("[data-spell-effect-select]");
+  const spellStatTypeSelect = cardCreator.querySelector("[data-spell-stat-type]");
+  const spellParamPanel = cardCreator.querySelector("[data-spell-param-panel]");
+  const spellParamFields = Array.from(cardCreator.querySelectorAll("[data-spell-param-field]"));
+  const spellDescriptionField = cardCreator.querySelector("[data-spell-description-field]");
+  const spellEffectCount = cardCreator.querySelector("[data-spell-effect-count]");
   const creatorMessage = cardCreator.querySelector("[data-creator-message]");
   const saveButton = cardCreator.querySelector(".creator-save");
   const creatorTitle = cardCreator.querySelector(".creator-header h1");
@@ -1219,10 +1247,144 @@ if (cardCreator) {
     effectDescription.value = generatedEffectDescription();
   }
 
+  const SPELL_EFFECT_BASE_PARAMS = {
+    "draw": ["drawCount"],
+    "destroy-opponent-cards": ["destroyCount"],
+    "increase-stat": ["statType"],
+    "destroy-opponent-monsters": ["destroyCount"],
+    "increase-lp": ["lpAmount"],
+    "decrease-lp": ["lpAmount"],
+    "return-graveyard": ["graveyardType", "graveyardDest"],
+    "send-to-graveyard": ["sendCount"],
+    "restrict-monster": ["restrictTurns"],
+    "restrict-opponent": ["restrictTurns"]
+  };
+
+  function buildSpellEffectDescription() {
+    const effect = spellEffectSelect?.value || "";
+    const statType = spellStatTypeSelect?.value || "attack";
+
+    switch (effect) {
+      case "special-summon":
+        return "Special summon a level 1 to 4 monster from hand.";
+      case "draw": {
+        const count = getField("spellDrawCount")?.value || "1";
+        return count === "1" ? "Draw 1 card from the deck." : `Draw ${count} cards from the deck.`;
+      }
+      case "destroy-opponent-cards": {
+        const count = getField("spellDestroyCount")?.value || "1";
+        return count === "1"
+          ? "Select and destroy 1 card in the opponent's field."
+          : `Select and destroy up to ${count} cards in the opponent's field.`;
+      }
+      case "increase-stat": {
+        const amount = statType === "defense"
+          ? getField("spellDefAmount")?.value || "100"
+          : getField("spellAtkAmount")?.value || "100";
+        return `Increase the ${statType} of a selected monster by ${amount}.`;
+      }
+      case "destroy-opponent-monsters": {
+        const count = getField("spellDestroyCount")?.value || "1";
+        return count === "1"
+          ? "Select and destroy 1 monster in the opponent's field."
+          : `Select and destroy up to ${count} monsters in the opponent's field.`;
+      }
+      case "destroy-all-monsters":
+        return "Destroy all monsters in the opponent's field.";
+      case "destroy-all-spell-trap":
+        return "Destroy all spell and trap cards in the opponent's field.";
+      case "revive":
+        return "Revive a monster from the player's graveyard.";
+      case "increase-lp": {
+        const amount = getField("spellLpAmount")?.value || "500";
+        return `Increase the player's life points by ${amount}.`;
+      }
+      case "decrease-lp": {
+        const amount = getField("spellLpAmount")?.value || "500";
+        return `Decrease the opponent's life points by ${amount}.`;
+      }
+      case "return-graveyard": {
+        const type = getField("spellGraveyardType")?.value || "monster";
+        const dest = getField("spellGraveyardDest")?.value || "deck";
+        return `Return a ${type} card from the player's graveyard to the ${dest}.`;
+      }
+      case "send-to-graveyard": {
+        const count = getField("spellSendCount")?.value || "1";
+        return count === "1"
+          ? "Send 1 card from the opponent's hand to the graveyard."
+          : `Send up to ${count} cards from the opponent's hand to the graveyard.`;
+      }
+      case "restrict-monster": {
+        const turns = getField("spellRestrictTurns")?.value || "1";
+        return turns === "1"
+          ? "Select and restrict 1 opponent's monster from attacking for 1 turn."
+          : `Select and restrict 1 opponent's monster from attacking for ${turns} turns.`;
+      }
+      case "restrict-opponent": {
+        const turns = getField("spellRestrictTurns")?.value || "1";
+        return turns === "1"
+          ? "Restrict the opponent from attacking for 1 turn."
+          : `Restrict the opponent from attacking for ${turns} turns.`;
+      }
+      default:
+        return "";
+    }
+  }
+
+  function updateSpellEffectParams() {
+    const effect = spellEffectSelect?.value || "";
+    const statType = spellStatTypeSelect?.value || "attack";
+    const baseParams = SPELL_EFFECT_BASE_PARAMS[effect] || [];
+    const visibleParams = new Set(baseParams);
+
+    if (effect === "increase-stat") {
+      visibleParams.add(statType === "defense" ? "defAmount" : "atkAmount");
+    }
+
+    spellParamFields.forEach((field) => {
+      field.hidden = !visibleParams.has(field.dataset.spellParamField);
+    });
+
+    if (spellParamPanel) {
+      spellParamPanel.hidden = visibleParams.size === 0;
+    }
+
+    const description = buildSpellEffectDescription();
+    const descriptionTextarea = getField("spellDescription");
+
+    if (descriptionTextarea) {
+      descriptionTextarea.value = description;
+    }
+
+    if (spellEffectCount) {
+      spellEffectCount.textContent = String(description.length);
+    }
+  }
+
   function updateDescriptionFields(cardTypeValue = getCheckedValue("cardType") || "monster", monsterTypeValue = getCheckedValue("monsterType") || "Effect") {
     const showMonsterType = cardTypeValue === "monster";
     const showEffectFields = usesEffectFields(cardTypeValue, monsterTypeValue);
     const showShortDescription = usesShortDescription(cardTypeValue, monsterTypeValue);
+
+    if (cardOptionsFieldset) {
+      cardOptionsFieldset.hidden = !showMonsterType;
+    }
+
+    if (combatStatsFieldset) {
+      combatStatsFieldset.hidden = !showMonsterType;
+    }
+
+    if (effectDescriptionFieldset) {
+      effectDescriptionFieldset.hidden = !showMonsterType;
+    }
+
+    if (spellEffectFieldset) {
+      spellEffectFieldset.hidden = cardTypeValue !== "spell";
+    }
+
+    if (cardTypeValue === "spell") {
+      updateSpellEffectParams();
+    }
 
     if (cardOptionsLegend) {
       cardOptionsLegend.textContent = showMonsterType ? "Monster Options" : "Card Options";
@@ -1274,6 +1436,12 @@ if (cardCreator) {
     }
 
     return Math.min(Math.max(number, 0), 9999);
+  }
+
+  function getStatLimits(level) {
+    if (level <= 4) return { maxAtk: 1800, maxDef: 2200 };
+    if (level <= 7) return { maxAtk: 2700, maxDef: 3000 };
+    return { maxAtk: 4000, maxDef: 4000 };
   }
 
   function clampPosition(value) {
@@ -1511,6 +1679,19 @@ if (cardCreator) {
     }
     setFieldValue("effectDescription", cardEffectDescription(card));
     setFieldValue("shortDescription", card.shortDescription || "");
+    if (card.cardType === "spell" && card.spellEffectParams) {
+      setFieldValue("spellEffect", card.spellEffect || "");
+      setFieldValue("spellDrawCount", card.spellEffectParams.drawCount || "1");
+      setFieldValue("spellDestroyCount", card.spellEffectParams.destroyCount || "1");
+      setFieldValue("spellStatType", card.spellEffectParams.statType || "attack");
+      setFieldValue("spellAtkAmount", card.spellEffectParams.atkAmount || "100");
+      setFieldValue("spellDefAmount", card.spellEffectParams.defAmount || "100");
+      setFieldValue("spellLpAmount", card.spellEffectParams.lpAmount || "500");
+      setFieldValue("spellGraveyardType", card.spellEffectParams.graveyardType || "monster");
+      setFieldValue("spellGraveyardDest", card.spellEffectParams.graveyardDest || "deck");
+      setFieldValue("spellSendCount", card.spellEffectParams.sendCount || "1");
+      setFieldValue("spellRestrictTurns", card.spellEffectParams.restrictTurns || "1");
+    }
     applyStoredArtwork(card);
     renderLevelButtons();
     filterEffectOptions(cardEffectTemplate(card));
@@ -1571,14 +1752,36 @@ if (cardCreator) {
     updateDescriptionFields(cardType, monsterType);
     syncEffectDescription(cardType, monsterType);
 
+    if (cardType === "monster") {
+      const limits = getStatLimits(selectedLevel);
+      const attackField = getField("attack");
+      const defenseField = getField("defense");
+      if (attackField) {
+        attackField.max = String(limits.maxAtk);
+        attackField.placeholder = `Max: ${limits.maxAtk}`;
+        if (Number(attackField.value) > limits.maxAtk) {
+          attackField.value = String(limits.maxAtk);
+        }
+      }
+      if (defenseField) {
+        defenseField.max = String(limits.maxDef);
+        defenseField.placeholder = `Max: ${limits.maxDef}`;
+        if (Number(defenseField.value) > limits.maxDef) {
+          defenseField.value = String(limits.maxDef);
+        }
+      }
+    }
+
     const cardName = getField("cardName")?.value.trim() || "Unnamed Creation";
     const shortDescription = getField("shortDescription")?.value.trim() || "No description has been written for this card yet.";
     const effectDescription = generatedEffectDescription();
     const attack = clampStat(getField("attack")?.value);
     const defense = clampStat(getField("defense")?.value);
-    const displayDescription = usesEffectFields(cardType, monsterType)
-      ? effectDescription
-      : shortDescription;
+    const displayDescription = cardType === "spell"
+      ? buildSpellEffectDescription() || "No effect has been selected for this spell card."
+      : usesEffectFields(cardType, monsterType)
+        ? effectDescription
+        : shortDescription;
 
     previewCard.classList.remove("card-kind-monster", "card-kind-spell", "card-kind-trap");
     previewCard.classList.add(`card-kind-${cardType}`);
@@ -1601,6 +1804,14 @@ if (cardCreator) {
 
     if (previewDescription) {
       previewDescription.textContent = displayDescription;
+    }
+
+    if (previewMetaEl) {
+      previewMetaEl.hidden = cardType !== "monster";
+    }
+
+    if (previewStatsEl) {
+      previewStatsEl.hidden = cardType !== "monster";
     }
 
     if (previewAttack) {
@@ -1655,8 +1866,9 @@ if (cardCreator) {
 
     const draftCardType = getCheckedValue("cardType") || "monster";
     const draftMonsterType = draftCardType === "monster" ? getCheckedValue("monsterType") || "Effect" : "";
-    const shouldUseEffectDescription = usesEffectFields(draftCardType, draftMonsterType);
-    const shouldUseEffectUsage = usesEffectUsage(draftCardType, draftMonsterType);
+    const isSpell = draftCardType === "spell";
+    const shouldUseEffectDescription = !isSpell && usesEffectFields(draftCardType, draftMonsterType);
+    const shouldUseEffectUsage = !isSpell && usesEffectUsage(draftCardType, draftMonsterType);
     if (shouldUseEffectDescription && !validateEffectLevelRange(false)) {
       form?.reportValidity();
       if (creatorMessage) {
@@ -1690,6 +1902,21 @@ if (cardCreator) {
       effectOncePerTurn: shouldUseEffectUsage ? Boolean(getField("effectOncePerTurn")?.checked) : false,
       effectDescription: builtEffectDescription,
       shortDescription: usesShortDescription(draftCardType, draftMonsterType) ? getField("shortDescription")?.value || "" : "",
+      spellEffect: isSpell ? (getField("spellEffect")?.value || "") : "",
+      spellEffectLabel: isSpell ? (spellEffectSelect?.options[spellEffectSelect?.selectedIndex]?.text || "") : "",
+      spellEffectParams: isSpell ? {
+        drawCount: getField("spellDrawCount")?.value || "1",
+        destroyCount: getField("spellDestroyCount")?.value || "1",
+        statType: getField("spellStatType")?.value || "attack",
+        atkAmount: getField("spellAtkAmount")?.value || "100",
+        defAmount: getField("spellDefAmount")?.value || "100",
+        lpAmount: getField("spellLpAmount")?.value || "500",
+        graveyardType: getField("spellGraveyardType")?.value || "monster",
+        graveyardDest: getField("spellGraveyardDest")?.value || "deck",
+        sendCount: getField("spellSendCount")?.value || "1",
+        restrictTurns: getField("spellRestrictTurns")?.value || "1"
+      } : {},
+      spellEffectDescription: isSpell ? buildSpellEffectDescription() : "",
       savedAt: new Date().toISOString()
     };
 
