@@ -1786,6 +1786,14 @@ if (cardCreator) {
     previewCard.classList.remove("card-kind-monster", "card-kind-spell", "card-kind-trap");
     previewCard.classList.add(`card-kind-${cardType}`);
 
+    const artThemeClass = cardType === "spell" ? "art-spell" : cardType === "trap" ? "art-trap" : "art-underworld";
+    [previewArt, imageThumb].forEach((el) => {
+      if (el) {
+        el.classList.remove("art-underworld", "art-spell", "art-trap");
+        el.classList.add(artThemeClass);
+      }
+    });
+
     if (previewName) {
       previewName.textContent = cardName;
     }

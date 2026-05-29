@@ -2147,6 +2147,20 @@ button:disabled {
     linear-gradient(135deg, #260803, #672210 44%, #120706 100%);
 }
 
+.art-spell {
+  background:
+    radial-gradient(circle at 58% 54%, rgba(113, 207, 80, 0.7), transparent 7rem),
+    radial-gradient(circle at 42% 40%, rgba(180, 240, 80, 0.32), transparent 9rem),
+    linear-gradient(135deg, #061508, #174910 44%, #050d03 100%);
+}
+
+.art-trap {
+  background:
+    radial-gradient(circle at 58% 54%, rgba(166, 76, 238, 0.7), transparent 7rem),
+    radial-gradient(circle at 42% 40%, rgba(200, 120, 255, 0.3), transparent 9rem),
+    linear-gradient(135deg, #110820, #2e1060 44%, #0a0512 100%);
+}
+
 .preview-art::before,
 .image-thumb::before {
   background:
