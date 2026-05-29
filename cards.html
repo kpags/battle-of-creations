@@ -1,0 +1,127 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Battle of Creations | My Created Cards</title>
+    <meta
+      name="description"
+      content="Manage the Battle of Creations cards created by your account."
+    >
+    <link rel="stylesheet" href="styles.css">
+  </head>
+  <body>
+    <main class="creator-page card-library-page" data-card-library aria-label="Battle of Creations card library">
+      <aside class="creator-sidebar" aria-label="Game navigation">
+        <a class="creator-brand" href="home.html" aria-label="Battle of Creations home">
+          <span class="creator-brand-mark" aria-hidden="true"></span>
+          <strong>Battle<br>of<br>Creations</strong>
+          <small>Card Battle Game</small>
+        </a>
+
+        <nav class="creator-nav">
+          <a class="creator-nav-item" href="home.html">
+            <span class="mini-icon mini-home" aria-hidden="true"></span>
+            <span>Home</span>
+          </a>
+          <a class="creator-nav-item" href="home.html#duel">
+            <span class="mini-icon mini-duel" aria-hidden="true"></span>
+            <span>Duel Now</span>
+          </a>
+          <a class="creator-nav-item is-current" href="cards.html" aria-current="page">
+            <span class="mini-icon mini-card" aria-hidden="true"></span>
+            <span>Card Creator</span>
+          </a>
+          <a class="creator-nav-item" href="home.html#deck-constructor">
+            <span class="mini-icon mini-deck" aria-hidden="true"></span>
+            <span>Deck Constructor</span>
+          </a>
+          <a class="creator-nav-item" href="home.html#leaderboards">
+            <span class="mini-icon mini-trophy" aria-hidden="true"></span>
+            <span>Leaderboards</span>
+          </a>
+          <a class="creator-nav-item" href="home.html#rewards">
+            <span class="mini-icon mini-chest" aria-hidden="true"></span>
+            <span>Rewards</span>
+          </a>
+          <a class="creator-nav-item" href="index.html" data-logout>
+            <span class="mini-icon mini-logout" aria-hidden="true"></span>
+            <span>Logout</span>
+          </a>
+        </nav>
+      </aside>
+
+      <section class="card-library-shell">
+        <header class="library-header">
+          <div>
+            <h1>My Created Cards</h1>
+            <p>View and manage all cards you have created.</p>
+          </div>
+          <div class="library-actions">
+            <a class="library-command command-create" href="card-creator.html" data-create-card>
+              <span aria-hidden="true"></span>
+              Create a Card
+            </a>
+            <button class="library-command command-delete" type="button" data-delete-mode>
+              <span aria-hidden="true"></span>
+              Delete Cards
+            </button>
+            <a class="library-command command-edit" href="#" hidden data-edit-card>
+              <span aria-hidden="true"></span>
+              Edit Card
+            </a>
+          </div>
+        </header>
+
+        <div class="library-layout">
+          <section class="library-main-panel" aria-label="Created cards">
+            <div class="library-filterbar">
+              <span class="library-count" data-card-count>Loading cards...</span>
+              <label class="library-search">
+                <span class="search-icon" aria-hidden="true"></span>
+                <input type="search" name="cardSearch" placeholder="Search cards..." data-card-search>
+              </label>
+              <select name="cardTypeFilter" aria-label="Filter by card type" data-card-type-filter>
+                <option value="all">All Types</option>
+                <option value="monster">Monster</option>
+                <option value="spell">Spell</option>
+                <option value="trap">Trap</option>
+              </select>
+              <select name="cardSort" aria-label="Sort cards" data-card-sort>
+                <option value="newest">Newest First</option>
+                <option value="oldest">Oldest First</option>
+                <option value="name">Name</option>
+                <option value="level">Level</option>
+              </select>
+            </div>
+
+            <div class="bulk-delete-strip" hidden data-delete-strip>
+              <strong data-delete-selected-count>0 selected</strong>
+              <button type="button" data-confirm-delete>Delete Selected</button>
+              <button type="button" data-cancel-delete>Cancel</button>
+            </div>
+
+            <div class="card-table-grid" data-card-grid aria-live="polite"></div>
+
+            <nav class="library-pagination" aria-label="Card pages" data-card-pagination></nav>
+          </section>
+
+          <aside class="library-detail-panel" aria-label="Selected card details" data-detail-pane></aside>
+        </div>
+      </section>
+
+      <section class="delete-dialog" hidden data-delete-dialog aria-modal="true" role="dialog" aria-labelledby="delete-dialog-title">
+        <div class="delete-dialog-panel">
+          <h2 id="delete-dialog-title">Delete Selected Cards?</h2>
+          <p data-delete-dialog-count></p>
+          <div>
+            <button type="button" data-cancel-confirm-delete>Cancel</button>
+            <button type="button" data-run-delete>Delete Permanently</button>
+          </div>
+        </div>
+      </section>
+    </main>
+
+    <script src="app.js"></script>
+  </body>
+</html>

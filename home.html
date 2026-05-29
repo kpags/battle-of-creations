@@ -1,0 +1,100 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Battle of Creations | Home</title>
+    <meta
+      name="description"
+      content="Battle of Creations home page with duel, card creator, deck, leaderboard, rewards, and logout actions."
+    >
+    <link rel="stylesheet" href="styles.css">
+  </head>
+  <body>
+    <main class="home" aria-label="Battle of Creations home">
+      <div class="home-frame">
+        <div class="home-corner home-corner-tl" aria-hidden="true"></div>
+        <div class="home-corner home-corner-tr" aria-hidden="true"></div>
+        <div class="home-corner home-corner-bl" aria-hidden="true"></div>
+        <div class="home-corner home-corner-br" aria-hidden="true"></div>
+
+        <div class="realm realm-fire" aria-hidden="true"></div>
+        <div class="realm realm-sky" aria-hidden="true"></div>
+
+        <header class="home-topbar" aria-label="Player status">
+          <section class="player-card" aria-label="Current player">
+            <div class="player-avatar" aria-hidden="true">
+              <span></span>
+            </div>
+            <div class="player-copy">
+              <strong data-player-username>Player</strong>
+              <span data-player-level>Level 1</span>
+              <div class="xp-track" aria-label="Experience 4580 of 7200">
+                <span data-player-xp-track style="width: 0%"></span>
+              </div>
+              <small data-player-xp>0 / 1000</small>
+            </div>
+          </section>
+
+          <section class="coin-card" aria-label="Gold balance">
+            <span class="coin-icon" aria-hidden="true"></span>
+            <strong data-player-gold>0</strong>
+          </section>
+        </header>
+
+        <section class="home-hero" aria-labelledby="home-title">
+          <div class="home-logo-mark" aria-hidden="true">
+            <span></span>
+          </div>
+          <h1 id="home-title">
+            <span>Battle</span>
+            <small>of</small>
+            <span>Creations</span>
+          </h1>
+          <p>Card Battle Game</p>
+        </section>
+
+        <nav class="home-actions" aria-label="Game actions">
+          <a class="home-tile tile-red" href="home.html#duel">
+            <span class="tile-art icon-duel" aria-hidden="true"><span></span></span>
+            <span class="tile-label">Duel Now</span>
+            <span class="tile-gem" aria-hidden="true"></span>
+          </a>
+
+          <a class="home-tile tile-blue" href="cards.html">
+            <span class="tile-art icon-card-creator" aria-hidden="true"><span></span></span>
+            <span class="tile-label">Card Creator</span>
+            <span class="tile-gem" aria-hidden="true"></span>
+          </a>
+
+          <a class="home-tile tile-green" href="home.html#deck-constructor">
+            <span class="tile-art icon-deck" aria-hidden="true"><span></span></span>
+            <span class="tile-label">Deck Constructor</span>
+            <span class="tile-gem" aria-hidden="true"></span>
+          </a>
+
+          <a class="home-tile tile-purple" href="home.html#leaderboards">
+            <span class="tile-art icon-trophy" aria-hidden="true"><span></span></span>
+            <span class="tile-label">Leaderboards</span>
+            <span class="tile-gem" aria-hidden="true"></span>
+          </a>
+
+          <a class="home-tile tile-gold" href="home.html#rewards">
+            <span class="tile-art icon-chest" aria-hidden="true"><span></span></span>
+            <span class="tile-label">Rewards</span>
+            <span class="tile-gem" aria-hidden="true"></span>
+          </a>
+
+          <a class="home-tile tile-iron" href="index.html" data-logout>
+            <span class="tile-art icon-door" aria-hidden="true"><span></span></span>
+            <span class="tile-label">Logout</span>
+            <span class="tile-gem" aria-hidden="true"></span>
+          </a>
+        </nav>
+
+        <div class="home-seal" aria-hidden="true"><span></span></div>
+      </div>
+    </main>
+    <script src="app.js"></script>
+  </body>
+</html>

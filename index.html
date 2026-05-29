@@ -1,0 +1,91 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Battle of Creations | Login</title>
+    <meta
+      name="description"
+      content="Login to Battle of Creations, a browser card battle game."
+    >
+    <link rel="stylesheet" href="styles.css">
+  </head>
+  <body>
+    <main class="landing" aria-label="Battle of Creations login">
+      <div class="mist mist-one" aria-hidden="true"></div>
+      <div class="mist mist-two" aria-hidden="true"></div>
+
+      <section class="auth-stage" aria-labelledby="game-title">
+        <div class="auth-grid">
+          <article class="auth-card theme-blue">
+            <div class="corner corner-tl" aria-hidden="true"></div>
+            <div class="corner corner-tr" aria-hidden="true"></div>
+            <div class="corner corner-bl" aria-hidden="true"></div>
+            <div class="corner corner-br" aria-hidden="true"></div>
+
+            <header class="brand">
+              <div class="crest" aria-hidden="true">
+                <span></span>
+              </div>
+              <h1 id="game-title">
+                <span>Battle</span>
+                <small>of</small>
+                <span>Creations</span>
+              </h1>
+              <p>Card Battle Game</p>
+            </header>
+
+            <div class="panel">
+              <h2><span></span>Login<span></span></h2>
+
+              <form class="auth-form" data-form="login">
+                <label class="field">
+                  <span>Email</span>
+                  <span class="input-shell">
+                    <span class="field-icon user-icon" aria-hidden="true"></span>
+                    <input type="email" name="email" autocomplete="email" placeholder="Enter your email address" required>
+                  </span>
+                </label>
+
+                <label class="field">
+                  <span>Password</span>
+                  <span class="input-shell">
+                    <span class="field-icon lock-icon" aria-hidden="true"></span>
+                    <input
+                      type="password"
+                      name="password"
+                      autocomplete="current-password"
+                      placeholder="Enter your password"
+                      minlength="6"
+                      required
+                    >
+                    <button class="show-password" type="button" aria-label="Show password" data-toggle-password></button>
+                  </span>
+                </label>
+
+                <div class="form-row">
+                  <label class="checkline">
+                    <input type="checkbox" name="remember">
+                    <span>Remember me</span>
+                  </label>
+                  <a class="link-button" href="reset-password.html">Forgot Password?</a>
+                </div>
+
+                <button class="primary-button" type="submit">Login</button>
+
+                <div class="divider"><span>Or</span></div>
+
+                <a class="secondary-button" href="register.html">Create Account</a>
+                <p class="form-message" role="status" aria-live="polite"></p>
+              </form>
+            </div>
+
+            <div class="bottom-seal" aria-hidden="true"><span></span></div>
+          </article>
+        </div>
+      </section>
+    </main>
+
+    <script src="app.js"></script>
+  </body>
+</html>

@@ -1,0 +1,102 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Battle of Creations | Register</title>
+    <meta
+      name="description"
+      content="Create a Battle of Creations browser game account."
+    >
+    <link rel="stylesheet" href="styles.css">
+  </head>
+  <body>
+    <main class="landing" aria-label="Battle of Creations registration">
+      <div class="mist mist-one" aria-hidden="true"></div>
+      <div class="mist mist-two" aria-hidden="true"></div>
+
+      <section class="auth-stage" aria-labelledby="game-title">
+        <div class="auth-grid">
+          <article class="auth-card theme-purple">
+            <div class="corner corner-tl" aria-hidden="true"></div>
+            <div class="corner corner-tr" aria-hidden="true"></div>
+            <div class="corner corner-bl" aria-hidden="true"></div>
+            <div class="corner corner-br" aria-hidden="true"></div>
+
+            <header class="brand">
+              <div class="crest" aria-hidden="true">
+                <span></span>
+              </div>
+              <h1 id="game-title">
+                <span>Battle</span>
+                <small>of</small>
+                <span>Creations</span>
+              </h1>
+              <p>Card Battle Game</p>
+            </header>
+
+            <div class="panel">
+              <h2><span></span>Register<span></span></h2>
+
+              <form class="auth-form" data-form="register">
+                <label class="field">
+                  <span>Username</span>
+                  <span class="input-shell">
+                    <span class="field-icon user-icon" aria-hidden="true"></span>
+                    <input type="text" name="username" autocomplete="username" placeholder="Enter a username" minlength="6" required>
+                  </span>
+                  <small>Minimum 6 characters</small>
+                </label>
+
+                <label class="field">
+                  <span>Email Address</span>
+                  <span class="input-shell">
+                    <span class="field-icon mail-icon" aria-hidden="true"></span>
+                    <input type="email" name="email" autocomplete="email" placeholder="Enter your email address" required>
+                  </span>
+                </label>
+
+                <label class="field">
+                  <span>Password</span>
+                  <span class="input-shell">
+                    <span class="field-icon lock-icon" aria-hidden="true"></span>
+                    <input
+                      type="password"
+                      name="password"
+                      autocomplete="new-password"
+                      placeholder="Enter your password"
+                      minlength="6"
+                      required
+                    >
+                    <button class="show-password" type="button" aria-label="Show password" data-toggle-password></button>
+                  </span>
+                </label>
+
+                <p class="legal">
+                  By creating an account, you agree to our
+                  <a href="#" aria-label="Terms of Service">Terms of Service</a>
+                  and
+                  <a href="#" aria-label="Privacy Policy">Privacy Policy</a>.
+                </p>
+
+                <button class="primary-button" type="submit">Create Account</button>
+
+                <div class="divider"><span>Or</span></div>
+
+                <p class="swap-copy">
+                  Already have an account?
+                  <a class="link-button" href="index.html">Login</a>
+                </p>
+                <p class="form-message" role="status" aria-live="polite"></p>
+              </form>
+            </div>
+
+            <div class="bottom-seal" aria-hidden="true"><span></span></div>
+          </article>
+        </div>
+      </section>
+    </main>
+
+    <script src="app.js"></script>
+  </body>
+</html>

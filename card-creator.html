@@ -1,0 +1,337 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Battle of Creations | Card Creator</title>
+    <meta
+      name="description"
+      content="Design custom Battle of Creations cards with a live card preview."
+    >
+    <link rel="stylesheet" href="styles.css">
+  </head>
+  <body>
+    <main class="creator-page" data-card-creator aria-label="Battle of Creations card creator">
+      <aside class="creator-sidebar" aria-label="Game navigation">
+        <a class="creator-brand" href="home.html" aria-label="Battle of Creations home">
+          <span class="creator-brand-mark" aria-hidden="true"></span>
+          <strong>Battle<br>of<br>Creations</strong>
+          <small>Card Battle Game</small>
+        </a>
+
+        <nav class="creator-nav">
+          <a class="creator-nav-item" href="home.html">
+            <span class="mini-icon mini-home" aria-hidden="true"></span>
+            <span>Home</span>
+          </a>
+          <a class="creator-nav-item" href="home.html#duel">
+            <span class="mini-icon mini-duel" aria-hidden="true"></span>
+            <span>Duel Now</span>
+          </a>
+          <a class="creator-nav-item is-current" href="cards.html" aria-current="page">
+            <span class="mini-icon mini-card" aria-hidden="true"></span>
+            <span>Card Creator</span>
+          </a>
+          <a class="creator-nav-item" href="home.html#deck-constructor">
+            <span class="mini-icon mini-deck" aria-hidden="true"></span>
+            <span>Deck Constructor</span>
+          </a>
+          <a class="creator-nav-item" href="home.html#leaderboards">
+            <span class="mini-icon mini-trophy" aria-hidden="true"></span>
+            <span>Leaderboards</span>
+          </a>
+          <a class="creator-nav-item" href="home.html#rewards">
+            <span class="mini-icon mini-chest" aria-hidden="true"></span>
+            <span>Rewards</span>
+          </a>
+          <a class="creator-nav-item" href="index.html" data-logout>
+            <span class="mini-icon mini-logout" aria-hidden="true"></span>
+            <span>Logout</span>
+          </a>
+        </nav>
+      </aside>
+
+      <section class="creator-workbench">
+        <header class="creator-header">
+          <div>
+            <h1>Card Creator</h1>
+            <p>Design your own powerful cards</p>
+          </div>
+          <a class="back-home" href="cards.html">Back to Cards</a>
+        </header>
+
+        <div class="creator-layout">
+          <section class="preview-column" aria-label="Live card preview">
+            <article class="battle-card-preview card-kind-monster" data-preview-card>
+              <div class="card-frame-corner corner-one" aria-hidden="true"></div>
+              <div class="card-frame-corner corner-two" aria-hidden="true"></div>
+
+              <header class="preview-titlebar">
+                <h2 data-preview-name>Azborg, Monarch of Underworld Fire</h2>
+                <span class="preview-attribute" data-preview-attribute aria-label="Fire attribute"></span>
+              </header>
+
+              <div class="preview-art art-underworld" data-preview-art>
+                <img class="uploaded-art" data-uploaded-art-preview alt="">
+                <span class="art-beast" aria-hidden="true"></span>
+              </div>
+
+              <div class="preview-meta">
+                <div class="preview-level">
+                  <span>Level</span>
+                  <div class="preview-stars" data-preview-stars aria-label="Level 8"></div>
+                </div>
+                <div class="preview-kind">
+                  <span>Type</span>
+                  <strong data-preview-type>Effect</strong>
+                </div>
+              </div>
+
+              <section class="preview-description">
+                <h3 data-preview-type-line>Monster / Effect</h3>
+                <p data-preview-description>
+                  Born with great hatred to the world. Nobody survives as it strives the path of destruction. Even if the choice is to run away when seen, it will still not be effective. The only option is to die.
+                </p>
+              </section>
+
+              <footer class="preview-stats">
+                <strong class="preview-stat preview-attack">
+                  <img src="assets/icons/atk_points_icon.png" alt="" aria-hidden="true">
+                  <span data-preview-attack>3500</span>
+                </strong>
+                <strong class="preview-stat preview-defense">
+                  <img src="assets/icons/def_points_icon.png" alt="" aria-hidden="true">
+                  <span data-preview-defense>2800</span>
+                </strong>
+              </footer>
+            </article>
+          </section>
+
+          <section class="creator-panel" aria-label="Card settings">
+            <form class="creator-form" data-card-form>
+              <fieldset class="creator-fieldset">
+                <legend>Card Type</legend>
+                <div class="creator-segment three">
+                  <label class="segment-option card-type-monster">
+                    <input type="radio" name="cardType" value="monster" checked data-card-field>
+                    <span>Monster</span>
+                  </label>
+                  <label class="segment-option card-type-spell">
+                    <input type="radio" name="cardType" value="spell" data-card-field>
+                    <span>Spell</span>
+                  </label>
+                  <label class="segment-option card-type-trap">
+                    <input type="radio" name="cardType" value="trap" data-card-field>
+                    <span>Trap</span>
+                  </label>
+                </div>
+              </fieldset>
+
+              <label class="creator-field">
+                <span>Card Name</span>
+                <span class="creator-input-line">
+                  <input
+                    type="text"
+                    name="cardName"
+                    maxlength="60"
+                    value="Azborg, Monarch of Underworld Fire"
+                    data-card-field
+                  >
+                  <small><span data-name-count>36</span>/60</small>
+                </span>
+              </label>
+
+              <fieldset class="creator-fieldset">
+                <legend>Image</legend>
+                <div class="image-tools">
+                  <div class="image-thumb art-underworld" data-image-thumb aria-hidden="true">
+                    <img class="uploaded-art" data-uploaded-art-thumb alt="">
+                    <span class="art-beast"></span>
+                  </div>
+                  <div class="image-actions">
+                    <label class="tool-button upload-button" data-upload-label>
+                      <input type="file" accept="image/*" data-card-image>
+                      Upload Image
+                    </label>
+                    <button type="button" class="tool-button remove-image-button" data-remove-image hidden>Remove Image</button>
+                    <fieldset class="image-position-controls">
+                      <legend>Image Position</legend>
+                      <label class="position-range">
+                        <span>Horizontal</span>
+                        <input type="range" name="imageX" min="-100" max="200" value="50" data-image-position="x">
+                      </label>
+                      <label class="position-range">
+                        <span>Vertical</span>
+                        <input type="range" name="imageY" min="-100" max="200" value="50" data-image-position="y">
+                      </label>
+                      <button class="tool-button center-image-button" type="button" data-center-image>Center Image</button>
+                    </fieldset>
+                  </div>
+                </div>
+              </fieldset>
+
+              <fieldset class="creator-fieldset">
+                <legend data-card-options-legend>Monster Options</legend>
+                <div class="level-row" role="group" aria-label="Card level">
+                  <span>Level (1-10)</span>
+                  <div class="level-buttons" data-level-buttons></div>
+                </div>
+
+                <div class="creator-segment two" data-monster-type-field>
+                  <label class="segment-option">
+                    <input type="radio" name="monsterType" value="Normal" data-card-field>
+                    <span>Normal</span>
+                  </label>
+                  <label class="segment-option">
+                    <input type="radio" name="monsterType" value="Effect" checked data-card-field>
+                    <span>Effect</span>
+                  </label>
+                </div>
+              </fieldset>
+
+              <fieldset class="creator-fieldset">
+                <legend>Combat Stats</legend>
+                <div class="stat-grid">
+                  <label class="creator-field compact">
+                    <span>Attack Points</span>
+                    <input type="number" name="attack" min="0" max="9999" step="50" value="3500" data-card-field>
+                  </label>
+                  <label class="creator-field compact">
+                    <span>Defense Points</span>
+                    <input type="number" name="defense" min="0" max="9999" step="50" value="2800" data-card-field>
+                  </label>
+                </div>
+              </fieldset>
+
+              <fieldset class="creator-fieldset">
+                <legend data-description-legend>Effect / Description</legend>
+                <div class="effect-builder-grid" data-effect-builder-fields>
+                  <label class="creator-field compact">
+                    <span>Cause</span>
+                    <select name="effectCause" data-card-field>
+                      <option value="If the player gains life points">If the player gains life points</option>
+                      <option value="If this monster is flip summoned">If this monster is flip summoned</option>
+                      <option value="If a player's monster is normal/special summoned">If a player's monster is normal/special summoned</option>
+                      <option value="If this monster is normal/special summoned">If this monster is normal/special summoned</option>
+                      <option value="If a player's monster attacked">If a player's monster attacked</option>
+                      <option value="If this monster attacked">If this monster attacked</option>
+                      <option value="If this monster is destroyed and sent to the graveyard">If this monster is destroyed and sent to the graveyard</option>
+                      <option value="If this monster is drawn">If this monster is drawn</option>
+                      <option value="If this monster is in the hand">If this monster is in the hand</option>
+                      <option value="If this monster is attacked by the opponent">If this monster is attacked by the opponent</option>
+                      <option value="If opponent normal/special summons a monster">If opponent normal/special summons a monster</option>
+                      <option value="If opponent activates a card effect (spell/trap/effect monster)">If opponent activates a card effect (spell/trap/effect monster)</option>
+                      <option value="If opponent activates a spell/trap card">If opponent activates a spell/trap card</option>
+                      <option value="If opponent gains life points">If opponent gains life points</option>
+                      <option value="If opponent targets this monster by a card effect">If opponent targets this monster by a card effect</option>
+                      <option value="If opponent destroys 1 or more player's monsters">If opponent destroys 1 or more player's monsters</option>
+                      <option value="If opponent destroys 1 or more player's cards">If opponent destroys 1 or more player's cards</option>
+                    </select>
+                  </label>
+
+                  <label class="creator-field compact">
+                    <span>Effect</span>
+                    <select name="effectOutcome" data-card-field>
+                      <optgroup label="All Levels" data-effect-group data-min-level="1">
+                        <option value="special summon a level X to X monster from hand.">Special summon a level X to X monster from hand</option>
+                        <option value="draw 1 card.">Draw 1 card</option>
+                        <option value="revive a monster from player's graveyard.">Revive a monster from player's graveyard</option>
+                        <option value="send a monster/spell/trap card from graveyard to hand/deck.">Send a monster/spell/trap card from graveyard to hand/deck</option>
+                        <option value="reduce opponent's life points by up to 500.">Reduce opponent's life points by up to 500</option>
+                        <option value="destroy an opponent's monster in the field.">Destroy an opponent's monster in the field</option>
+                        <option value="destroy an opponent's spell/trap card in the field.">Destroy an opponent's spell/trap card in the field</option>
+                        <option value="return a monster card from field to opponent's hand.">Return a monster card from field to opponent's hand</option>
+                        <option value="return a spell/trap card from field to opponent's hand.">Return a spell/trap card from field to opponent's hand</option>
+                      </optgroup>
+                      <optgroup label="Level 5-7" data-effect-group data-min-level="5">
+                        <option value="select and destroy 1-2 opponent's monsters.">Select &amp; destroy 1-2 opponent's monsters</option>
+                        <option value="select and destroy 1-2 opponent's spell/trap cards.">Select &amp; destroy 1-2 opponent's spell/trap cards</option>
+                        <option value="this monster can attack twice during this turn's battle phase.">Can attack twice this turn's battle phase</option>
+                        <option value="increase this monster's attack by 1000 for 2 turns.">Increase this monster's attack by 1000 for 2 turns</option>
+                        <option value="increase this monster's defense by 1000 for 2 turns.">Increase this monster's defense by 1000 for 2 turns</option>
+                        <option value="reduce the attack of an opponent's faceup monster by 1000 during this turn's battle phase.">Reduce attack of an opponent's faceup monster by 1000</option>
+                        <option value="reduce the defense of an opponent's faceup monster by 1000 during this turn's battle phase.">Reduce defense of an opponent's faceup monster by 1000</option>
+                      </optgroup>
+                      <optgroup label="Level 8-10" data-effect-group data-min-level="8">
+                        <option value="select another player's monster and increase this monster's attack by 50% of the combined attack points for 2 turns.">Increase ATK by 50% of combined ATK with another monster</option>
+                        <option value="this monster cannot be targeted by card effects for 2 turns after summon (including the turn it was summoned).">Cannot be targeted by card effects for 2 turns after summon</option>
+                        <option value="this monster cannot be targeted by an attack for 2 turns after summon (including the turn it was summoned).">Cannot be targeted by an attack for 2 turns after summon</option>
+                        <option value="special summon 1-2 level 4 or below monsters from hand/deck.">Special summon 1-2 level 4 or below monsters from hand/deck</option>
+                      </optgroup>
+                    </select>
+                  </label>
+                </div>
+
+                <div class="effect-param-panel" data-effect-param-panel hidden>
+                  <span>Effect Options</span>
+                  <div class="effect-param-grid">
+                    <label class="creator-field compact" data-effect-param-field="levelFrom" hidden>
+                      <span>From Level</span>
+                      <select name="effectLevelFrom" data-card-field>
+                        <option value="1">1</option>
+                        <option value="2">2</option>
+                        <option value="3">3</option>
+                        <option value="4">4</option>
+                      </select>
+                    </label>
+
+                    <label class="creator-field compact" data-effect-param-field="levelTo" hidden>
+                      <span>To Level</span>
+                      <select name="effectLevelTo" data-card-field>
+                        <option value="1">1</option>
+                        <option value="2">2</option>
+                        <option value="3">3</option>
+                        <option value="4" selected>4</option>
+                      </select>
+                    </label>
+
+                    <label class="creator-field compact" data-effect-param-field="destination" hidden>
+                      <span>Destination</span>
+                      <select name="effectDestination" data-card-field>
+                        <option value="hand">Hand</option>
+                        <option value="deck">Deck</option>
+                      </select>
+                    </label>
+
+                    <label class="creator-field compact" data-effect-param-field="source" hidden>
+                      <span>Source</span>
+                      <select name="effectSource" data-card-field>
+                        <option value="hand">Hand</option>
+                        <option value="deck">Deck</option>
+                      </select>
+                    </label>
+                  </div>
+                </div>
+
+                <label class="effect-usage-toggle" data-effect-usage-field>
+                  <input type="checkbox" name="effectOncePerTurn" data-card-field>
+                  <span>Can be used ONCE per turn</span>
+                </label>
+
+                <label class="creator-field compact" data-effect-description-field>
+                  <span>Short Effect Description</span>
+                  <textarea name="effectDescription" maxlength="300" rows="3" readonly data-card-field>When this card is played; special summon a level 1 to 4 monster from hand.</textarea>
+                  <small><span data-effect-count>0</span>/300</small>
+                </label>
+
+                <label class="creator-field compact" data-short-description-field>
+                  <span>Short Description</span>
+                  <textarea name="shortDescription" maxlength="300" rows="3" data-card-field>Born with great hatred to the world. Nobody survives as it strives the path of destruction. Even if the choice is to run away when seen, it will still not be effective. The only option is to die.</textarea>
+                  <small><span data-description-count>197</span>/300</small>
+                </label>
+              </fieldset>
+
+              <div class="creator-actions">
+                <button class="creator-reset" type="reset">Reset</button>
+                <button class="creator-save" type="submit">Save Card</button>
+              </div>
+              <p class="creator-message" role="status" aria-live="polite" data-creator-message></p>
+            </form>
+          </section>
+        </div>
+      </section>
+    </main>
+
+    <script src="app.js"></script>
+  </body>
+</html>
