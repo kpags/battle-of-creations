@@ -682,6 +682,11 @@ if (cardLibrary) {
     const miniCardChildren = [title, createArtElement("mini-card-art", card)];
     if (type === "monster") {
       miniCardChildren.push(level, stats);
+    } else {
+      const typeTag = document.createElement("span");
+      typeTag.className = "mini-card-type-tag";
+      typeTag.textContent = type === "spell" ? "Spell Card" : "Trap Card";
+      miniCardChildren.push(typeTag);
     }
     button.append(...miniCardChildren);
     article.append(selector, button);
