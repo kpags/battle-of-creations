@@ -1250,8 +1250,15 @@ if (cardCreator) {
   }
 
   function generatedEffectDescription() {
-    return combineEffectStatements(getField("effectCause")?.value, currentEffectOutcome()) ||
-      "No effect description has been written for this card yet.";
+    const base = combineEffectStatements(getField("effectCause")?.value, currentEffectOutcome());
+    if (!base) {
+      return "No effect description has been written for this card yet.";
+    }
+    const oncePerTurn = getField("effectOncePerTurn")?.checked;
+    if (oncePerTurn) {
+      return `Once per turn, ${base.charAt(0).toLowerCase()}${base.slice(1)}`;
+    }
+    return base;
   }
 
   function syncEffectDescription(cardTypeValue = getCheckedValue("cardType") || "monster", monsterTypeValue = getCheckedValue("monsterType") || "Effect") {
