@@ -877,10 +877,6 @@ if (cardLibrary) {
 
     if (isEffectMonster(selectedCard)) {
       rows.push(
-        ["Effect Type", selectedCard.effect || "None"],
-        ["Cause", selectedCard.effectCause || DEFAULT_EFFECT_CAUSE],
-        ["Effects", cardEffectOutcome(selectedCard)],
-        ["Usage", selectedCard.effectOncePerTurn ? "Once per turn" : "Once after summoned"],
         ["Short Effect Description", cardEffectDescription(selectedCard)]
       );
     } else if (isNormalMonster(selectedCard)) {
@@ -1322,10 +1318,10 @@ if (cardCreator) {
       case "destroy-all-spell-trap":
         return "Destroy all spell and trap cards in the opponent's field.";
       case "revive":
-        return "Revive a monster from the player's graveyard.";
+        return "Revive a monster from your graveyard.";
       case "increase-lp": {
         const amount = getField("spellLpAmount")?.value || "500";
-        return `Increase the player's life points by ${amount}.`;
+        return `Increase your life points by ${amount}.`;
       }
       case "decrease-lp": {
         const amount = getField("spellLpAmount")?.value || "500";
@@ -1334,7 +1330,7 @@ if (cardCreator) {
       case "return-graveyard": {
         const type = getField("spellGraveyardType")?.value || "monster";
         const dest = getField("spellGraveyardDest")?.value || "deck";
-        return `Return a ${type} card from the player's graveyard to the ${dest}.`;
+        return `Return a ${type} card from your graveyard to the ${dest}.`;
       }
       case "send-to-graveyard": {
         const count = getField("spellSendCount")?.value || "1";
