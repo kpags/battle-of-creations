@@ -1,0 +1,184 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Battle of Creations | Create Deck</title>
+    <meta name="description" content="Build your ultimate deck by adding your created cards.">
+    <link rel="stylesheet" href="styles.css">
+  </head>
+  <body class="dc-fullpage">
+    <div class="dc-page" data-deck-creator aria-label="Deck creator">
+
+      <!-- Top bar -->
+      <header class="dc-topbar">
+        <div class="dc-topbar-left">
+          <a class="dc-brand" href="home.html" aria-label="Battle of Creations home">
+            <span class="dc-brand-emblem" aria-hidden="true">
+              <svg viewBox="0 0 48 48" fill="none" xmlns="http://www.w3.org/2000/svg">
+                <polygon points="24,4 44,14 44,34 24,44 4,34 4,14" fill="none" stroke="#c9a84c" stroke-width="2"/>
+                <polygon points="24,10 38,18 38,30 24,38 10,30 10,18" fill="rgba(180,140,60,0.12)" stroke="#c9a84c" stroke-width="1.5"/>
+                <path d="M24 14 L24 34 M14 24 L34 24 M17 17 L31 31 M31 17 L17 31" stroke="#c9a84c" stroke-width="1.5" stroke-linecap="round"/>
+                <circle cx="24" cy="24" r="4" fill="#c9a84c" opacity="0.8"/>
+              </svg>
+            </span>
+            <span class="dc-brand-text">
+              <strong>Battle of Creations</strong>
+              <small>Card Battle Game</small>
+            </span>
+          </a>
+          <div class="dc-topbar-divider" aria-hidden="true"></div>
+          <div class="dc-title-block">
+            <h1 data-deck-creator-title>Create Deck</h1>
+            <p>Build your ultimate deck by adding cards from your collection.</p>
+          </div>
+        </div>
+        <div class="dc-topbar-actions">
+          <button class="dc-action-btn dc-save-btn" type="button" data-dc-save>
+            <svg aria-hidden="true" width="14" height="14" viewBox="0 0 24 24" fill="currentColor"><path d="M17 3H5a2 2 0 00-2 2v14a2 2 0 002 2h14a2 2 0 002-2V7l-4-4zm-5 16a3 3 0 110-6 3 3 0 010 6zm3-10H5V5h10v4z"/></svg>
+            Save Deck
+          </button>
+          <button class="dc-action-btn dc-clear-btn" type="button" data-dc-clear>
+            <svg aria-hidden="true" width="14" height="14" viewBox="0 0 24 24" fill="currentColor"><path d="M12 4V1L8 5l4 4V6a6 6 0 110 12 6 6 0 01-5.93-5H4.06A8 8 0 1012 4z"/></svg>
+            Clear Deck
+          </button>
+          <a class="dc-action-btn dc-cancel-btn" href="decks.html">
+            <svg aria-hidden="true" width="14" height="14" viewBox="0 0 24 24" fill="currentColor"><path d="M19 6.41L17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/></svg>
+            Cancel
+          </a>
+        </div>
+      </header>
+
+      <!-- Back to Decks row -->
+      <div class="dc-subnav">
+        <a class="dc-back-btn" href="decks.html">
+          <svg aria-hidden="true" width="12" height="12" viewBox="0 0 24 24" fill="currentColor"><path d="M20 11H7.83l5.59-5.59L12 4l-8 8 8 8 1.41-1.41L7.83 13H20v-2z"/></svg>
+          Back to Decks
+        </a>
+      </div>
+
+      <!-- 4-pane body -->
+      <div class="dc-body">
+
+        <!-- Pane 1: Your Cards (LEFT) -->
+        <div class="dc-pane dc-pane-cards">
+          <div class="dc-cards-topbar">
+            <h2 class="dc-cards-heading">Your Cards</h2>
+            <span class="dc-cards-showing" data-dc-cards-showing></span>
+          </div>
+          <div class="dc-card-grid" data-dc-collection></div>
+          <nav class="dc-pagination" data-dc-pagination aria-label="Card collection pages"></nav>
+          <p class="dc-drag-hint">Drag a card to the deck slots to add it.</p>
+        </div>
+
+        <!-- Pane 2: Deck Slots Grid (CENTER — main focus) -->
+        <div class="dc-pane dc-pane-grid">
+          <div class="dc-pane-header">
+            <svg class="dc-pane-icon" aria-hidden="true" width="16" height="16" viewBox="0 0 24 24" fill="currentColor"><path d="M3 3h7v7H3zm0 11h7v7H3zm11-11h7v7h-7zm0 11h7v7h-7z"/></svg>
+            Deck Slots (<span data-dc-slot-count>0/50</span>)
+          </div>
+          <div class="dc-grid-wrap">
+            <div class="dc-col-labels" aria-hidden="true">
+              <span></span>
+              <span>1</span><span>2</span><span>3</span><span>4</span><span>5</span>
+            </div>
+            <div class="dc-rows" data-dc-slots></div>
+          </div>
+          <p class="dc-grid-hint">Drag cards from your collection to the slots to add them to your deck.</p>
+        </div>
+
+        <!-- Pane 3: Deck Details + Filters -->
+        <div class="dc-pane dc-pane-sidebar">
+
+          <!-- Deck Details -->
+          <section class="dc-section">
+            <h2 class="dc-section-heading">Deck Details</h2>
+            <div class="dc-section-body">
+              <label class="dc-label" for="dc-deck-name">Deck Name</label>
+              <div class="dc-name-wrap">
+                <input id="dc-deck-name" type="text" maxlength="50" placeholder="Enter deck name..." data-dc-name>
+                <span class="dc-name-count" data-dc-name-count>0/50</span>
+              </div>
+
+              <span class="dc-label" style="display:block;margin-top:14px">Deck Thumbnail</span>
+              <label class="dc-thumb-drop" data-dc-thumb-label>
+                <input type="file" accept="image/*" data-dc-thumb-input hidden>
+                <svg class="dc-thumb-icon" aria-hidden="true" width="28" height="28" viewBox="0 0 24 24" fill="currentColor" opacity=".35"><path d="M21 19V5a2 2 0 00-2-2H5a2 2 0 00-2 2v14a2 2 0 002 2h14a2 2 0 002-2zM8.5 13.5l2.5 3.01L14.5 12l4.5 6H5l3.5-4.5z"/></svg>
+                <span class="dc-thumb-label-text">Upload Image<br><small>(Optional)</small></span>
+                <img class="dc-thumb-preview" data-dc-thumb-preview alt="" hidden>
+              </label>
+            </div>
+          </section>
+
+          <!-- Filters -->
+          <section class="dc-section">
+            <h2 class="dc-section-heading">Filters</h2>
+            <div class="dc-section-body">
+              <label class="dc-label" for="dc-type-filter">Card Type</label>
+              <select id="dc-type-filter" class="dc-select" data-dc-type-filter>
+                <option value="all">All Types</option>
+                <option value="monster">Monster</option>
+                <option value="spell">Spell</option>
+                <option value="trap">Trap</option>
+              </select>
+
+              <div class="dc-type-btns">
+                <button class="dc-type-btn dc-type-btn-monster" type="button" data-dc-type-quick="monster">
+                  <span class="dc-type-icon dc-type-icon-monster" aria-hidden="true"></span>
+                  Monster
+                </button>
+                <button class="dc-type-btn dc-type-btn-spell" type="button" data-dc-type-quick="spell">
+                  <span class="dc-type-icon dc-type-icon-spell" aria-hidden="true"></span>
+                  Spell
+                </button>
+                <button class="dc-type-btn dc-type-btn-trap" type="button" data-dc-type-quick="trap">
+                  <span class="dc-type-icon dc-type-icon-trap" aria-hidden="true"></span>
+                  Trap
+                </button>
+              </div>
+
+              <label class="dc-label" for="dc-search">Search Cards</label>
+              <div class="dc-search-row">
+                <input id="dc-search" type="search" class="dc-search-input" placeholder="Search by name..." data-dc-search>
+                <svg class="dc-search-icon" aria-hidden="true" width="14" height="14" viewBox="0 0 24 24" fill="currentColor"><path d="M10 2a8 8 0 015.29 13.71l4.5 4.5-1.42 1.41-4.5-4.5A8 8 0 1110 2zm0 2a6 6 0 100 12A6 6 0 0010 4z"/></svg>
+              </div>
+
+              <label class="dc-label" for="dc-rarity-filter">Rarity</label>
+              <select id="dc-rarity-filter" class="dc-select" data-dc-rarity-filter>
+                <option value="all">All Rarities</option>
+              </select>
+
+              <label class="dc-label" for="dc-sort-filter">Sort By</label>
+              <select id="dc-sort-filter" class="dc-select" data-dc-sort-filter>
+                <option value="newest">Newest First</option>
+                <option value="oldest">Oldest First</option>
+                <option value="name-asc">Name A–Z</option>
+                <option value="name-desc">Name Z–A</option>
+                <option value="atk-desc">Highest ATK</option>
+                <option value="atk-asc">Lowest ATK</option>
+              </select>
+
+              <button class="dc-reset-filters-btn" type="button" data-dc-filter-reset>
+                <svg aria-hidden="true" width="13" height="13" viewBox="0 0 24 24" fill="currentColor"><path d="M12 4V1L8 5l4 4V6a6 6 0 110 12 6 6 0 01-5.93-5H4.06A8 8 0 1012 4z"/></svg>
+                Reset Filters
+              </button>
+            </div>
+          </section>
+
+        </div><!-- /.dc-pane-sidebar -->
+
+        <!-- Pane 4: Selected Card -->
+        <div class="dc-pane dc-pane-selected">
+          <h2 class="dc-selected-heading">Selected Card</h2>
+          <div class="dc-selected-body" data-dc-selected></div>
+        </div><!-- /.dc-pane-selected -->
+
+      </div><!-- /.dc-body -->
+    </div><!-- /.dc-page -->
+
+    <div class="dc-toast" hidden data-dc-message role="alert"></div>
+
+    <script src="app.js"></script>
+  </body>
+</html>
+

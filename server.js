@@ -314,6 +314,44 @@ async function deleteOwnedCards(req, res) {
   return true;
 }
 
+async function deleteOwnedDecks(req, res) {
+  const body = await readJson(req);
+  const ids = Array.isArray(body.ids)
+    ? [...new Set(body.ids.map((id) => String(id)).filter(Boolean))]
+    : [];
+
+  if (ids.length === 0) {
+    sendError(res, 400, "Select at least one deck to delete.");
+    return true;
+  }
+
+  const result = await updateStore((store) => {
+    const user = requireUser(req, res, store);
+    if (!user) return null;
+
+    const idSet = new Set(ids);
+    const deletedIds = [];
+    store.decks = store.decks.filter((deck) => {
+      if (deck.ownerId === user.id && idSet.has(deck.id)) {
+        deletedIds.push(deck.id);
+        return false;
+      }
+      return true;
+    });
+
+    return { deletedIds };
+  });
+
+  if (result) {
+    sendJson(res, 200, {
+      deletedIds: result.deletedIds,
+      deletedCount: result.deletedIds.length
+    });
+  }
+
+  return true;
+}
+
 async function handleApi(req, res, pathname) {
   try {
     const method = String(req.method || "").toUpperCase();
@@ -325,6 +363,10 @@ async function handleApi(req, res, pathname) {
 
     if (method === "POST" && routePath === "/api/cards/delete") {
       return await deleteOwnedCards(req, res);
+    }
+
+    if (method === "DELETE" && routePath === "/api/decks") {
+      return await deleteOwnedDecks(req, res);
     }
 
     if (req.method === "GET" && pathname === "/api/session") {
@@ -543,7 +585,7 @@ async function serveStatic(req, res, pathname) {
   }
 
   let requestedPath = pathname === "/" ? "/index.html" : pathname;
-  const protectedPages = new Set(["/home.html", "/cards.html", "/card-creator.html"]);
+  const protectedPages = new Set(["/home.html", "/cards.html", "/card-creator.html", "/decks.html", "/deck-creator.html"]);
 
   if (protectedPages.has(requestedPath)) {
     const store = await loadStore();

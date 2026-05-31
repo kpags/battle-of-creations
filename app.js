@@ -225,6 +225,14 @@ async function deleteCards(ids) {
   return payload;
 }
 
+async function deleteDecks(ids) {
+  const payload = await apiRequest("/api/decks", {
+    method: "DELETE",
+    body: { ids }
+  });
+  return payload;
+}
+
 window.BattleOfCreationsStore = {
   getCurrentUser,
   refreshSession,
@@ -232,7 +240,8 @@ window.BattleOfCreationsStore = {
   getMyDecks,
   saveCard,
   saveDeck,
-  deleteCards
+  deleteCards,
+  deleteDecks
 };
 
 function showFormMessage(form, text, isError = false) {
@@ -1011,6 +1020,936 @@ if (cardLibrary) {
   });
 
   loadLibraryCards();
+}
+
+const deckLibrary = document.querySelector("[data-deck-library]");
+
+if (deckLibrary) {
+  const DECK_PAGE_SIZE = 50;
+  const deckGrid = deckLibrary.querySelector("[data-deck-grid]");
+  const deckCountLabel = deckLibrary.querySelector("[data-deck-count]");
+  const deckSearchInput = deckLibrary.querySelector("[data-deck-search]");
+  const deckSortSelect = deckLibrary.querySelector("[data-deck-sort]");
+  const deckPagination = deckLibrary.querySelector("[data-deck-pagination]");
+  const deckDetailPane = deckLibrary.querySelector("[data-detail-pane]");
+  const deckEditLink = deckLibrary.querySelector("[data-edit-deck]");
+  const deckDeleteModeButton = deckLibrary.querySelector("[data-delete-mode]");
+  const deckDeleteStrip = deckLibrary.querySelector("[data-delete-strip]");
+  const deckSelectedCount = deckLibrary.querySelector("[data-delete-selected-count]");
+  const deckConfirmDeleteButton = deckLibrary.querySelector("[data-confirm-delete]");
+  const deckCancelDeleteButton = deckLibrary.querySelector("[data-cancel-delete]");
+  const deckDeleteDialog = deckLibrary.querySelector("[data-delete-dialog]");
+  const deckDeleteDialogCount = deckLibrary.querySelector("[data-delete-dialog-count]");
+  const deckCancelConfirmDeleteButton = deckLibrary.querySelector("[data-cancel-confirm-delete]");
+  const deckRunDeleteButton = deckLibrary.querySelector("[data-run-delete]");
+
+  let allDecks = [];
+  let allCards = [];
+  let deckCurrentPage = 1;
+  let selectedDeckId = "";
+  let deckDeleteMode = false;
+  let selectedDeckDeleteIds = new Set();
+
+  function getDeckName(deck) {
+    return String(deck.name || deck.deckName || "Unnamed Deck");
+  }
+
+  function getDeckCardIds(deck) {
+    return Array.isArray(deck.cardIds) ? deck.cardIds : [];
+  }
+
+  function getDeckCreatedAt(deck) {
+    const raw = deck.savedAt || deck.createdAt;
+    const date = raw ? new Date(raw) : null;
+    if (!date || isNaN(date)) return "Unknown";
+    return date.toLocaleString([], {
+      year: "numeric", month: "short", day: "numeric",
+      hour: "numeric", minute: "2-digit"
+    });
+  }
+
+  function getDeckCardCounts(deck) {
+    const ids = new Set(getDeckCardIds(deck));
+    let monster = 0;
+    let spell = 0;
+    let trap = 0;
+    for (const card of allCards) {
+      if (!ids.has(card.id)) continue;
+      const t = String(card.cardType || "monster").toLowerCase();
+      if (t === "spell") spell++;
+      else if (t === "trap") trap++;
+      else monster++;
+    }
+    return { total: ids.size, monster, spell, trap };
+  }
+
+  function getDeckCoverImage(deck) {
+    if (deck.coverCardId) {
+      const cover = allCards.find((c) => c.id === deck.coverCardId);
+      if (cover?.uploadedImage) return cover.uploadedImage;
+    }
+    const firstId = getDeckCardIds(deck)[0];
+    if (firstId) {
+      const first = allCards.find((c) => c.id === firstId);
+      if (first?.uploadedImage) return first.uploadedImage;
+    }
+    return "";
+  }
+
+  function filteredDecks() {
+    const query = String(deckSearchInput?.value || "").trim().toLowerCase();
+    const sortBy = deckSortSelect?.value || "newest";
+    const decks = allDecks.filter((deck) =>
+      !query || getDeckName(deck).toLowerCase().includes(query)
+    );
+    decks.sort((a, b) => {
+      if (sortBy === "oldest") return Date.parse(a.savedAt || a.createdAt || 0) - Date.parse(b.savedAt || b.createdAt || 0);
+      if (sortBy === "name") return getDeckName(a).localeCompare(getDeckName(b));
+      return Date.parse(b.savedAt || b.createdAt || 0) - Date.parse(a.savedAt || a.createdAt || 0);
+    });
+    return decks;
+  }
+
+  function createDeckMiniCard(deck) {
+    const img = getDeckCoverImage(deck);
+    const counts = getDeckCardCounts(deck);
+
+    const article = document.createElement("article");
+    article.className = "library-card-mini deck-mini";
+    article.dataset.deckId = deck.id;
+    article.classList.toggle("is-selected", deck.id === selectedDeckId);
+    article.classList.toggle("is-delete-selected", selectedDeckDeleteIds.has(deck.id));
+
+    const selector = document.createElement("label");
+    selector.className = "card-select-bubble";
+    const checkbox = document.createElement("input");
+    checkbox.type = "checkbox";
+    checkbox.checked = selectedDeckDeleteIds.has(deck.id);
+    checkbox.setAttribute("aria-label", `Select ${getDeckName(deck)} for deletion`);
+    checkbox.addEventListener("change", () => {
+      if (checkbox.checked) selectedDeckDeleteIds.add(deck.id);
+      else selectedDeckDeleteIds.delete(deck.id);
+      article.classList.toggle("is-delete-selected", selectedDeckDeleteIds.has(deck.id));
+      updateDeckDeleteControls();
+    });
+    const selectorMark = document.createElement("span");
+    selector.append(checkbox, selectorMark);
+
+    const button = document.createElement("button");
+    button.className = "library-card-button deck-mini-button";
+    button.type = "button";
+    button.addEventListener("click", () => {
+      selectedDeckId = deck.id;
+      renderDeckDetail();
+      deckGrid?.querySelectorAll(".library-card-mini").forEach((el) => {
+        el.classList.toggle("is-selected", el.dataset.deckId === selectedDeckId);
+      });
+    });
+
+    const thumb = document.createElement("div");
+    thumb.className = "deck-mini-thumb art-underworld";
+    const thumbImg = document.createElement("img");
+    thumbImg.className = "uploaded-art";
+    thumbImg.alt = "";
+    const thumbBeast = document.createElement("span");
+    thumbBeast.className = "art-beast";
+    thumbBeast.setAttribute("aria-hidden", "true");
+    if (img) {
+      thumbImg.src = img;
+      thumb.classList.add("has-upload");
+    }
+    thumb.append(thumbImg, thumbBeast);
+
+    const name = document.createElement("strong");
+    name.className = "mini-card-title deck-mini-name";
+    name.textContent = getDeckName(deck);
+
+    const meta = document.createElement("div");
+    meta.className = "deck-mini-meta";
+    meta.textContent = `${counts.total} card${counts.total !== 1 ? "s" : ""}`;
+
+    button.append(thumb, name, meta);
+    article.append(selector, button);
+    return article;
+  }
+
+  function renderDeckDetail() {
+    if (!deckDetailPane) return;
+
+    const selectedDeck = allDecks.find((d) => d.id === selectedDeckId);
+    deckDetailPane.textContent = "";
+
+    const heading = document.createElement("h2");
+    heading.className = "deck-detail-section-heading";
+    heading.textContent = "Deck Details";
+    deckDetailPane.append(heading);
+
+    if (!selectedDeck) {
+      if (deckEditLink) deckEditLink.hidden = true;
+      const empty = document.createElement("div");
+      empty.className = "deck-detail-empty";
+      const icon = document.createElement("span");
+      icon.className = "deck-detail-icon";
+      icon.setAttribute("aria-hidden", "true");
+      const iconInner = document.createElement("span");
+      icon.append(iconInner);
+      const msg = document.createElement("p");
+      msg.innerHTML = "Select a deck from the list<br>to view its details.";
+      empty.append(icon, msg);
+      deckDetailPane.append(empty);
+      return;
+    }
+
+    if (deckEditLink) {
+      deckEditLink.hidden = false;
+      deckEditLink.href = `deck-creator.html?deck=${encodeURIComponent(selectedDeck.id)}`;
+    }
+
+    const counts = getDeckCardCounts(selectedDeck);
+    const img = getDeckCoverImage(selectedDeck);
+
+    const thumbWrap = document.createElement("div");
+    thumbWrap.className = "deck-detail-thumb art-underworld";
+    const thumbImg = document.createElement("img");
+    thumbImg.className = "uploaded-art";
+    thumbImg.alt = getDeckName(selectedDeck);
+    const thumbBeast = document.createElement("span");
+    thumbBeast.className = "art-beast";
+    thumbBeast.setAttribute("aria-hidden", "true");
+    if (img) {
+      thumbImg.src = img;
+      thumbWrap.classList.add("has-upload");
+    }
+    thumbWrap.append(thumbImg, thumbBeast);
+
+    const facts = document.createElement("dl");
+    facts.className = "library-card-facts";
+    const rows = [
+      ["Deck Name", getDeckName(selectedDeck)],
+      ["Total Cards", String(counts.total)],
+      ["Monster Cards", String(counts.monster)],
+      ["Spell Cards", String(counts.spell)],
+      ["Trap Cards", String(counts.trap)],
+      ["Created On", getDeckCreatedAt(selectedDeck)]
+    ];
+    rows.forEach(([label, value]) => {
+      const dt = document.createElement("dt");
+      const dd = document.createElement("dd");
+      dt.textContent = label;
+      dd.textContent = value;
+      facts.append(dt, dd);
+    });
+
+    deckDetailPane.append(thumbWrap, facts);
+  }
+
+  function updateDeckDeleteControls() {
+    deckLibrary.classList.toggle("is-delete-mode", deckDeleteMode);
+    if (deckDeleteModeButton) deckDeleteModeButton.classList.toggle("is-active", deckDeleteMode);
+    if (deckDeleteStrip) deckDeleteStrip.hidden = !deckDeleteMode;
+    if (deckSelectedCount) deckSelectedCount.textContent = `${selectedDeckDeleteIds.size} selected`;
+    if (deckConfirmDeleteButton) deckConfirmDeleteButton.disabled = selectedDeckDeleteIds.size === 0;
+  }
+
+  function renderDeckPagination(total) {
+    if (!deckPagination) return;
+    deckPagination.textContent = "";
+    const pageCount = Math.max(1, Math.ceil(total / DECK_PAGE_SIZE));
+    deckCurrentPage = Math.min(Math.max(deckCurrentPage, 1), pageCount);
+
+    function addPageBtn(label, page, isCurrent = false, disabled = false) {
+      const btn = document.createElement("button");
+      btn.type = "button";
+      btn.textContent = label;
+      btn.disabled = disabled;
+      btn.classList.toggle("is-current", isCurrent);
+      btn.addEventListener("click", () => {
+        deckCurrentPage = page;
+        renderDecks();
+      });
+      deckPagination.append(btn);
+    }
+
+    addPageBtn("<<", Math.max(deckCurrentPage - 1, 1), false, deckCurrentPage === 1);
+    const start = Math.max(1, deckCurrentPage - 2);
+    const end = Math.min(pageCount, deckCurrentPage + 2);
+    if (start > 1) {
+      addPageBtn("1", 1, deckCurrentPage === 1);
+      if (start > 2) {
+        const dots = document.createElement("span");
+        dots.textContent = "...";
+        deckPagination.append(dots);
+      }
+    }
+    for (let page = start; page <= end; page++) {
+      addPageBtn(String(page), page, page === deckCurrentPage);
+    }
+    if (end < pageCount) {
+      if (end < pageCount - 1) {
+        const dots = document.createElement("span");
+        dots.textContent = "...";
+        deckPagination.append(dots);
+      }
+      addPageBtn(String(pageCount), pageCount, deckCurrentPage === pageCount);
+    }
+    addPageBtn(">>", Math.min(deckCurrentPage + 1, pageCount), false, deckCurrentPage === pageCount);
+  }
+
+  function renderDecks() {
+    if (!deckGrid) return;
+    const decks = filteredDecks();
+    const pageCount = Math.max(1, Math.ceil(decks.length / DECK_PAGE_SIZE));
+    deckCurrentPage = Math.min(Math.max(deckCurrentPage, 1), pageCount);
+    const startIndex = (deckCurrentPage - 1) * DECK_PAGE_SIZE;
+    const pageDecks = decks.slice(startIndex, startIndex + DECK_PAGE_SIZE);
+
+    deckGrid.textContent = "";
+    pageDecks.forEach((deck) => deckGrid.append(createDeckMiniCard(deck)));
+
+    if (pageDecks.length === 0) {
+      const empty = document.createElement("div");
+      empty.className = "library-empty-state";
+      empty.textContent = allDecks.length === 0 ? "No decks created yet." : "No decks match the current search.";
+      deckGrid.append(empty);
+    }
+
+    if (deckCountLabel) {
+      if (decks.length === 0) {
+        deckCountLabel.textContent = "No decks found";
+      } else {
+        deckCountLabel.textContent = `${decks.length} deck${decks.length !== 1 ? "s" : ""}`;
+      }
+    }
+
+    renderDeckPagination(decks.length);
+    updateDeckDeleteControls();
+  }
+
+  function setDeckDeleteMode(enabled) {
+    deckDeleteMode = enabled;
+    if (!deckDeleteMode) selectedDeckDeleteIds = new Set();
+    renderDecks();
+  }
+
+  function openDeckDeleteDialog() {
+    if (!deckDeleteDialog || selectedDeckDeleteIds.size === 0) return;
+    if (deckDeleteDialogCount) {
+      deckDeleteDialogCount.textContent = `${selectedDeckDeleteIds.size} deck${selectedDeckDeleteIds.size === 1 ? "" : "s"} will be permanently deleted.`;
+    }
+    deckDeleteDialog.hidden = false;
+    deckRunDeleteButton?.focus();
+  }
+
+  function closeDeckDeleteDialog() {
+    if (deckDeleteDialog) deckDeleteDialog.hidden = true;
+  }
+
+  async function runBulkDeckDelete() {
+    if (selectedDeckDeleteIds.size === 0) { closeDeckDeleteDialog(); return; }
+    const ids = [...selectedDeckDeleteIds];
+    deckRunDeleteButton?.setAttribute("disabled", "");
+    try {
+      const result = await window.BattleOfCreationsStore.deleteDecks(ids);
+      const deletedIds = new Set(result.deletedIds || ids);
+      allDecks = allDecks.filter((deck) => !deletedIds.has(deck.id));
+      if (deletedIds.has(selectedDeckId)) selectedDeckId = "";
+      selectedDeckDeleteIds = new Set();
+      deckDeleteMode = false;
+      closeDeckDeleteDialog();
+      renderDeckDetail();
+      renderDecks();
+    } finally {
+      deckRunDeleteButton?.removeAttribute("disabled");
+    }
+  }
+
+  async function loadDeckLibrary() {
+    const user = await sessionReady;
+    if (!user) return;
+    try {
+      [allDecks, allCards] = await Promise.all([
+        window.BattleOfCreationsStore.getMyDecks(),
+        window.BattleOfCreationsStore.getMyCards()
+      ]);
+      renderDeckDetail();
+      renderDecks();
+    } catch (error) {
+      if (deckCountLabel) deckCountLabel.textContent = error.message || "Decks could not be loaded.";
+    }
+  }
+
+  deckSearchInput?.addEventListener("input", () => { deckCurrentPage = 1; renderDecks(); });
+  deckSortSelect?.addEventListener("change", () => { deckCurrentPage = 1; renderDecks(); });
+  deckDeleteModeButton?.addEventListener("click", () => setDeckDeleteMode(!deckDeleteMode));
+  deckCancelDeleteButton?.addEventListener("click", () => setDeckDeleteMode(false));
+  deckConfirmDeleteButton?.addEventListener("click", openDeckDeleteDialog);
+  deckCancelConfirmDeleteButton?.addEventListener("click", closeDeckDeleteDialog);
+  deckRunDeleteButton?.addEventListener("click", runBulkDeckDelete);
+  deckDeleteDialog?.addEventListener("click", (event) => {
+    if (event.target === deckDeleteDialog) closeDeckDeleteDialog();
+  });
+  document.addEventListener("keydown", (event) => {
+    if (event.key === "Escape") closeDeckDeleteDialog();
+  });
+
+  renderDeckDetail();
+  loadDeckLibrary();
+}
+
+// ===== Deck Creator =====
+const deckCreatorEl = document.querySelector("[data-deck-creator]");
+
+if (deckCreatorEl) {
+  const DC_ROWS = 10;
+  const DC_COLS = 5;
+  const DC_MAX = DC_ROWS * DC_COLS;
+  const DC_COLLECTION_PAGE_SIZE = 25;
+
+  // Element refs — new HTML structure
+  const dcSlotsContainer = deckCreatorEl.querySelector("[data-dc-slots]");
+  const dcSlotCount = deckCreatorEl.querySelector("[data-dc-slot-count]");
+  const dcNameInput = deckCreatorEl.querySelector("[data-dc-name]");
+  const dcNameCount = deckCreatorEl.querySelector("[data-dc-name-count]");
+  const dcThumbInput = deckCreatorEl.querySelector("[data-dc-thumb-input]");
+  const dcThumbLabel = deckCreatorEl.querySelector("[data-dc-thumb-label]");
+  const dcThumbPreview = deckCreatorEl.querySelector("[data-dc-thumb-preview]");
+  const dcTypeFilter = deckCreatorEl.querySelector("[data-dc-type-filter]");
+  const dcRarityFilter = deckCreatorEl.querySelector("[data-dc-rarity-filter]");
+  const dcSortFilter = deckCreatorEl.querySelector("[data-dc-sort-filter]");
+  const dcSearch = deckCreatorEl.querySelector("[data-dc-search]");
+  const dcFilterReset = deckCreatorEl.querySelector("[data-dc-filter-reset]");
+  const dcCollection = deckCreatorEl.querySelector("[data-dc-collection]");
+  const dcPagination = deckCreatorEl.querySelector("[data-dc-pagination]");
+  const dcCardsShowing = deckCreatorEl.querySelector("[data-dc-cards-showing]");
+  const dcSaveBtn = deckCreatorEl.querySelector("[data-dc-save]");
+  const dcClearBtn = deckCreatorEl.querySelector("[data-dc-clear]");
+  const dcMessage = deckCreatorEl.querySelector("[data-dc-message]");
+  const dcTitleEl = deckCreatorEl.querySelector("[data-deck-creator-title]");
+  const dcSelectedPanel = deckCreatorEl.querySelector("[data-dc-selected]");
+
+  const editDeckId = new URLSearchParams(window.location.search).get("deck");
+  let dcActiveDeckId = editDeckId || createId("deck");
+  let dcAllCards = [];
+  let dcSlots = new Array(DC_MAX).fill(null);
+  let dcCollectionPage = 1;
+  let dcThumbnailDataUrl = "";
+  let dcSelectedCard = null;
+
+  // ---- Helpers ----
+  function dcCardType(card) {
+    return ["monster", "spell", "trap"].includes(card.cardType) ? card.cardType : "monster";
+  }
+  function dcCardName(card) { return String(card.cardName || "Unnamed Creation"); }
+  function dcCardDescription(card) {
+    if (dcCardType(card) === "monster") return cardEffectDescription(card);
+    if (dcCardType(card) === "spell") return String(card.spellEffectDescription || "No effect selected.");
+    return String(card.trapEffectDescription || "No effect selected.");
+  }
+  function dcCardEffect(card) {
+    if (dcCardType(card) === "spell") return String(card.spellEffect || "—");
+    if (dcCardType(card) === "trap") return String(card.trapEffect || "—");
+    return String(card.effect || card.effectTemplate || "—");
+  }
+  function dcCardPosition(card) {
+    return { x: Number(card.imagePosition?.x) || 50, y: Number(card.imagePosition?.y) || 50 };
+  }
+  function dcFilledSlots() { return dcSlots.filter(Boolean).length; }
+
+  // ---- Selected Card Panel ----
+  function dcShowSelectedCard(card) {
+    dcSelectedCard = card;
+    if (!dcSelectedPanel) return;
+    const type = dcCardType(card);
+    const pos = dcCardPosition(card);
+
+    // Mark the active card in collection
+    dcCollection?.querySelectorAll(".dc-card-item").forEach((el) => {
+      el.classList.toggle("is-selected", el.dataset.cardId === card.id);
+    });
+
+    dcSelectedPanel.textContent = "";
+
+    // Mini art preview
+    const artWrap = document.createElement("div");
+    artWrap.className = `dc-sel-art art-underworld card-kind-${type}`;
+    artWrap.style.setProperty("--art-x", `${pos.x}%`);
+    artWrap.style.setProperty("--art-y", `${pos.y}%`);
+    const artImg = document.createElement("img");
+    artImg.className = "uploaded-art";
+    artImg.alt = "";
+    const artBeast = document.createElement("span");
+    artBeast.className = "art-beast";
+    artBeast.setAttribute("aria-hidden", "true");
+    if (card.uploadedImage) { artWrap.classList.add("has-upload"); artImg.src = card.uploadedImage; }
+
+    // Deck toggle icon overlaid on art (top-right)
+    const deckBtn = document.createElement("button");
+    deckBtn.type = "button";
+    deckBtn.className = "dc-sel-deck-btn";
+    function dcUpdateDeckBtn() {
+      const inDeck = dcSlots.some(s => s && s.id === card.id);
+      const isFull = dcFilledSlots() >= DC_MAX;
+      if (inDeck) {
+        deckBtn.textContent = "✕";
+        deckBtn.title = "Remove from deck";
+        deckBtn.dataset.state = "remove";
+        deckBtn.disabled = false;
+      } else {
+        deckBtn.textContent = "+";
+        deckBtn.title = isFull ? "Deck full" : "Add to deck";
+        deckBtn.dataset.state = isFull ? "full" : "add";
+        deckBtn.disabled = isFull;
+      }
+    }
+    dcUpdateDeckBtn();
+    deckBtn.addEventListener("click", (e) => {
+      e.stopPropagation();
+      const inDeck = dcSlots.some(s => s && s.id === card.id);
+      if (inDeck) {
+        const idx = [...dcSlots.keys()].filter(i => dcSlots[i] && dcSlots[i].id === card.id).pop();
+        if (idx !== undefined) dcSlots[idx] = null;
+      } else {
+        const emptyIdx = dcSlots.findIndex(s => s === null);
+        if (emptyIdx === -1) return;
+        dcSlots[emptyIdx] = card;
+      }
+      dcRenderSlots();
+      dcUpdateSlotCount();
+      dcUpdateDeckBtn();
+    });
+    artWrap.append(artImg, artBeast, deckBtn);
+    dcSelectedPanel.append(artWrap);
+
+    // Details table
+    const rows = [
+      ["Card Type", CARD_TYPE_LABELS[type] || type],
+      ["Card Name", dcCardName(card)],
+    ];
+    if (type === "monster") {
+      rows.push(["Level", String(card.level || 1)]);
+      rows.push(["Monster Type", String(card.monsterType || "Effect")]);
+      rows.push(["Attack Points", String(card.attack ?? 0)]);
+      rows.push(["Defense Points", String(card.defense ?? 0)]);
+    }
+    rows.push(["Effect", dcCardEffect(card)]);
+    rows.push(["Effect Description", dcCardDescription(card)]);
+
+    const dl = document.createElement("dl");
+    dl.className = "dc-sel-dl";
+    rows.forEach(([label, value]) => {
+      const dt = document.createElement("dt");
+      dt.textContent = label;
+      const dd = document.createElement("dd");
+      dd.textContent = value;
+      dl.append(dt, dd);
+    });
+    dcSelectedPanel.append(dl);
+
+  }
+
+  function dcClearSelectedCard() {
+    dcSelectedCard = null;
+    if (!dcSelectedPanel) return;
+    dcCollection?.querySelectorAll(".dc-card-item").forEach((el) => el.classList.remove("is-selected"));
+    dcSelectedPanel.textContent = "";
+    const hint = document.createElement("p");
+    hint.className = "dc-selected-empty";
+    hint.textContent = "Select a card from your collection to view its details.";
+    dcSelectedPanel.append(hint);
+    const dl = document.createElement("dl");
+    dl.className = "dc-sel-dl dc-sel-dl-empty";
+    [["Card Type","—"],["Card Name","—"],["Level","—"],["Monster Type","—"],["Attack Points","—"],["Defense Points","—"],["Effect","—"],["Effect Description","—"]].forEach(([label, val]) => {
+      const dt = document.createElement("dt"); dt.textContent = label;
+      const dd = document.createElement("dd"); dd.textContent = val;
+      dl.append(dt, dd);
+    });
+    dcSelectedPanel.append(dl);
+  }
+
+  // ---- Slot rendering ----
+  function dcUpdateSlotCount() {
+    if (dcSlotCount) dcSlotCount.textContent = `${dcFilledSlots()}/50`;
+  }
+
+  function dcRenderSlots() {
+    if (!dcSlotsContainer) return;
+    dcSlotsContainer.textContent = "";
+    for (let row = 0; row < DC_ROWS; row++) {
+      const rowEl = document.createElement("div");
+      rowEl.className = "dc-slot-row";
+      const rowLabel = document.createElement("span");
+      rowLabel.className = "dc-row-label";
+      rowLabel.setAttribute("aria-hidden", "true");
+      rowLabel.textContent = String(row + 1);
+      rowEl.append(rowLabel);
+      for (let col = 0; col < DC_COLS; col++) {
+        const idx = row * DC_COLS + col;
+        const cell = document.createElement("div");
+        cell.className = "dc-slot-cell";
+        cell.dataset.slotIndex = String(idx);
+        cell.setAttribute("aria-label", `Slot ${row + 1}-${col + 1}`);
+        cell.setAttribute("role", "button");
+        cell.setAttribute("tabindex", "0");
+
+        const card = dcSlots[idx];
+        if (card) {
+          const type = dcCardType(card);
+          cell.classList.add("is-filled", `slot-kind-${type}`);
+          const pos = dcCardPosition(card);
+          const cellArt = document.createElement("div");
+          cellArt.className = "dc-slot-art art-underworld";
+          cellArt.style.setProperty("--art-x", `${pos.x}%`);
+          cellArt.style.setProperty("--art-y", `${pos.y}%`);
+          const cellImg = document.createElement("img");
+          cellImg.className = "uploaded-art";
+          cellImg.alt = dcCardName(card);
+          if (card.uploadedImage) { cellArt.classList.add("has-upload"); cellImg.src = card.uploadedImage; }
+          const cellBeast = document.createElement("span");
+          cellBeast.className = "art-beast";
+          cellBeast.setAttribute("aria-hidden", "true");
+          cellArt.append(cellImg, cellBeast);
+
+          // Remove "×" overlay
+          const removeX = document.createElement("span");
+          removeX.className = "dc-slot-remove";
+          removeX.setAttribute("aria-hidden", "true");
+          removeX.textContent = "×";
+
+          cell.append(cellArt, removeX);
+
+          cell.addEventListener("click", () => {
+            dcSlots[idx] = null;
+            dcRenderSlots();
+            dcUpdateSlotCount();
+            dcRenderCollection();
+          });
+          cell.addEventListener("keydown", (e) => {
+            if (e.key === "Enter" || e.key === " ") { dcSlots[idx] = null; dcRenderSlots(); dcUpdateSlotCount(); dcRenderCollection(); }
+          });
+        }
+
+        // Drag-and-drop target
+        cell.addEventListener("dragover", (e) => { e.preventDefault(); cell.classList.add("dc-slot-drag-over"); });
+        cell.addEventListener("dragleave", () => cell.classList.remove("dc-slot-drag-over"));
+        cell.addEventListener("drop", (e) => {
+          e.preventDefault();
+          cell.classList.remove("dc-slot-drag-over");
+          const cardId = e.dataTransfer?.getData("text/plain");
+          if (!cardId) return;
+          const droppedCard = dcAllCards.find((c) => c.id === cardId);
+          if (!droppedCard) return;
+          if (dcFilledSlots() >= DC_MAX && !dcSlots[idx]) return;
+          dcSlots[idx] = droppedCard;
+          dcRenderSlots();
+          dcUpdateSlotCount();
+          dcRenderCollection();
+        });
+
+        rowEl.append(cell);
+      }
+      dcSlotsContainer.append(rowEl);
+    }
+    dcUpdateSlotCount();
+  }
+
+  // ---- Collection rendering ----
+  function dcFilteredCards() {
+    const query = String(dcSearch?.value || "").trim().toLowerCase();
+    const type = dcTypeFilter?.value || "all";
+    const sort = dcSortFilter?.value || "newest";
+    let cards = dcAllCards.filter((card) => {
+      if (type !== "all" && dcCardType(card) !== type) return false;
+      if (query && !dcCardName(card).toLowerCase().includes(query)) return false;
+      return true;
+    });
+    cards = [...cards].sort((a, b) => {
+      if (sort === "newest") return (new Date(b.savedAt || 0)) - (new Date(a.savedAt || 0));
+      if (sort === "oldest") return (new Date(a.savedAt || 0)) - (new Date(b.savedAt || 0));
+      if (sort === "name-asc") return dcCardName(a).localeCompare(dcCardName(b));
+      if (sort === "name-desc") return dcCardName(b).localeCompare(dcCardName(a));
+      if (sort === "atk-desc") return (Number(b.attack) || 0) - (Number(a.attack) || 0);
+      if (sort === "atk-asc") return (Number(a.attack) || 0) - (Number(b.attack) || 0);
+      return 0;
+    });
+    return cards;
+  }
+
+  function dcRenderCollection() {
+    if (!dcCollection) return;
+    const cards = dcFilteredCards();
+    const total = cards.length;
+    const pageCount = Math.max(1, Math.ceil(total / DC_COLLECTION_PAGE_SIZE));
+    dcCollectionPage = Math.min(Math.max(dcCollectionPage, 1), pageCount);
+    const start = (dcCollectionPage - 1) * DC_COLLECTION_PAGE_SIZE;
+    const end = Math.min(start + DC_COLLECTION_PAGE_SIZE, total);
+    const pageCards = cards.slice(start, end);
+
+    dcCollection.textContent = "";
+
+    if (dcCardsShowing) {
+      dcCardsShowing.textContent = total > 0 ? `Showing ${start + 1}–${end} of ${total}` : "";
+    }
+
+    // Sync type quick-buttons active state
+    deckCreatorEl.querySelectorAll("[data-dc-type-quick]").forEach((btn) => {
+      btn.classList.toggle("is-active", btn.dataset.dcTypeQuick === (dcTypeFilter?.value || "all"));
+    });
+
+    if (pageCards.length === 0) {
+      const empty = document.createElement("div");
+      empty.className = "dc-collection-empty";
+      empty.textContent = dcAllCards.length === 0 ? "No cards created yet." : "No cards match the filters.";
+      dcCollection.append(empty);
+      dcRenderPagination(total);
+      return;
+    }
+
+    pageCards.forEach((card) => {
+      const type = dcCardType(card);
+      const pos = dcCardPosition(card);
+      const article = document.createElement("article");
+      article.className = `dc-card-item card-kind-${type}`;
+      article.setAttribute("draggable", "true");
+      article.setAttribute("title", dcCardName(card));
+      article.dataset.cardId = card.id;
+      if (dcSelectedCard && dcSelectedCard.id === card.id) article.classList.add("is-selected");
+
+      const inDeckCount = dcSlots.filter((s) => s && s.id === card.id).length;
+      if (inDeckCount > 0) article.classList.add("is-in-deck");
+
+      // Drag to add to slot
+      article.addEventListener("dragstart", (e) => {
+        e.dataTransfer.setData("text/plain", card.id);
+        article.classList.add("is-dragging");
+      });
+      article.addEventListener("dragend", () => article.classList.remove("is-dragging"));
+
+      // Click → show in Selected Card panel
+      article.addEventListener("click", () => dcShowSelectedCard(card));
+
+      const artDiv = document.createElement("div");
+      artDiv.className = "dc-card-art art-underworld";
+      artDiv.style.setProperty("--art-x", `${pos.x}%`);
+      artDiv.style.setProperty("--art-y", `${pos.y}%`);
+      const artImg = document.createElement("img");
+      artImg.className = "uploaded-art";
+      artImg.alt = "";
+      const artBeast = document.createElement("span");
+      artBeast.className = "art-beast";
+      artBeast.setAttribute("aria-hidden", "true");
+      if (card.uploadedImage) { artDiv.classList.add("has-upload"); artImg.src = card.uploadedImage; }
+      artDiv.append(artImg, artBeast);
+
+      if (inDeckCount > 0) {
+        const badge = document.createElement("span");
+        badge.className = "dc-in-deck-badge";
+        badge.textContent = inDeckCount > 1 ? `In Deck ×${inDeckCount}` : "In Deck";
+        artDiv.append(badge);
+      }
+
+      const nameEl = document.createElement("strong");
+      nameEl.className = "dc-card-name";
+      nameEl.textContent = dcCardName(card);
+
+      const footerEl = document.createElement("div");
+      footerEl.className = "dc-card-footer";
+      if (type === "monster") {
+        const atkIcon = document.createElement("img");
+        atkIcon.src = "assets/icons/atk_points_icon.png"; atkIcon.alt = "ATK";
+        const defIcon = document.createElement("img");
+        defIcon.src = "assets/icons/def_points_icon.png"; defIcon.alt = "DEF";
+        const atkSpan = document.createElement("span");
+        atkSpan.className = "dc-card-stat";
+        atkSpan.append(atkIcon, document.createTextNode(String(card.attack ?? 0)));
+        const defSpan = document.createElement("span");
+        defSpan.className = "dc-card-stat";
+        defSpan.append(defIcon, document.createTextNode(String(card.defense ?? 0)));
+        footerEl.append(atkSpan, defSpan);
+      } else {
+        const typeTag = document.createElement("span");
+        typeTag.className = "dc-card-tag";
+        typeTag.textContent = type === "spell" ? "Spell" : "Trap";
+        footerEl.append(typeTag);
+      }
+
+      article.append(artDiv, nameEl, footerEl);
+      dcCollection.append(article);
+    });
+
+    dcRenderPagination(total);
+  }
+
+  function dcRenderPagination(total) {
+    if (!dcPagination) return;
+    dcPagination.textContent = "";
+    const pageCount = Math.max(1, Math.ceil(total / DC_COLLECTION_PAGE_SIZE));
+    dcCollectionPage = Math.min(Math.max(dcCollectionPage, 1), pageCount);
+    if (pageCount <= 1) return;
+
+    function addBtn(label, page, isCurrent = false, disabled = false) {
+      const btn = document.createElement("button");
+      btn.type = "button";
+      btn.textContent = label;
+      btn.disabled = disabled;
+      btn.classList.toggle("is-current", isCurrent);
+      btn.addEventListener("click", () => { dcCollectionPage = page; dcRenderCollection(); });
+      dcPagination.append(btn);
+    }
+
+    addBtn("«", 1, false, dcCollectionPage === 1);
+    addBtn("‹", Math.max(dcCollectionPage - 1, 1), false, dcCollectionPage === 1);
+
+    const WINDOW = 2;
+    const startP = Math.max(1, dcCollectionPage - WINDOW);
+    const endP = Math.min(pageCount, dcCollectionPage + WINDOW);
+
+    if (startP > 1) {
+      addBtn("1", 1, false);
+      if (startP > 2) { const s = document.createElement("span"); s.className = "dc-pag-ellipsis"; s.textContent = "..."; dcPagination.append(s); }
+    }
+    for (let p = startP; p <= endP; p++) addBtn(String(p), p, p === dcCollectionPage);
+    if (endP < pageCount) {
+      if (endP < pageCount - 1) { const s = document.createElement("span"); s.className = "dc-pag-ellipsis"; s.textContent = "..."; dcPagination.append(s); }
+      addBtn(String(pageCount), pageCount, false);
+    }
+
+    addBtn("›", Math.min(dcCollectionPage + 1, pageCount), false, dcCollectionPage === pageCount);
+    addBtn("»", pageCount, false, dcCollectionPage === pageCount);
+  }
+
+  // ---- Name counter ----
+  dcNameInput?.addEventListener("input", () => {
+    const len = dcNameInput.value.length;
+    if (dcNameCount) dcNameCount.textContent = `${len}/50`;
+  });
+
+  // ---- Thumbnail upload ----
+  function dcApplyThumb(file) {
+    if (!file || !file.type.startsWith("image/")) return;
+    const reader = new FileReader();
+    reader.addEventListener("load", () => {
+      dcThumbnailDataUrl = String(reader.result);
+      if (dcThumbPreview) { dcThumbPreview.src = dcThumbnailDataUrl; dcThumbPreview.hidden = false; }
+      const hint = dcThumbLabel?.querySelector(".dc-thumb-label-text");
+      if (hint) hint.hidden = true;
+      const icon = dcThumbLabel?.querySelector(".dc-thumb-icon");
+      if (icon) icon.hidden = true;
+    });
+    reader.readAsDataURL(file);
+  }
+  dcThumbInput?.addEventListener("change", () => dcApplyThumb(dcThumbInput.files?.[0]));
+  dcThumbLabel?.addEventListener("dragover", (e) => { e.preventDefault(); dcThumbLabel.classList.add("is-drag-over"); });
+  dcThumbLabel?.addEventListener("dragleave", () => dcThumbLabel.classList.remove("is-drag-over"));
+  dcThumbLabel?.addEventListener("drop", (e) => { e.preventDefault(); dcThumbLabel.classList.remove("is-drag-over"); dcApplyThumb(e.dataTransfer?.files?.[0]); });
+
+  // ---- Type filter + quick buttons ----
+  dcTypeFilter?.addEventListener("change", () => { dcCollectionPage = 1; dcRenderCollection(); });
+  deckCreatorEl.querySelectorAll("[data-dc-type-quick]").forEach((btn) => {
+    btn.addEventListener("click", () => {
+      const val = btn.dataset.dcTypeQuick;
+      if (dcTypeFilter) {
+        dcTypeFilter.value = dcTypeFilter.value === val ? "all" : val;
+      }
+      dcCollectionPage = 1;
+      dcRenderCollection();
+    });
+  });
+
+  // ---- Other filters ----
+  dcSearch?.addEventListener("input", () => { dcCollectionPage = 1; dcRenderCollection(); });
+  dcSortFilter?.addEventListener("change", () => { dcCollectionPage = 1; dcRenderCollection(); });
+  dcRarityFilter?.addEventListener("change", () => { dcCollectionPage = 1; dcRenderCollection(); });
+
+  dcFilterReset?.addEventListener("click", () => {
+    if (dcTypeFilter) dcTypeFilter.value = "all";
+    if (dcSearch) dcSearch.value = "";
+    if (dcSortFilter) dcSortFilter.value = "newest";
+    if (dcRarityFilter) dcRarityFilter.value = "all";
+    dcCollectionPage = 1;
+    dcRenderCollection();
+  });
+
+  // ---- Clear ----
+  dcClearBtn?.addEventListener("click", () => {
+    dcSlots = new Array(DC_MAX).fill(null);
+    dcRenderSlots();
+    dcUpdateSlotCount();
+  });
+
+  // ---- Save ----
+  dcSaveBtn?.addEventListener("click", async () => {
+    const name = dcNameInput?.value.trim() || "";
+    if (!name) {
+      showDcMessage("Please enter a deck name.", true);
+      dcNameInput?.focus();
+      return;
+    }
+    const cardIds = dcSlots.filter(Boolean).map((c) => c.id);
+    const deck = {
+      id: dcActiveDeckId,
+      name,
+      deckName: name,
+      cardIds,
+      thumbnailImage: dcThumbnailDataUrl,
+      savedAt: new Date().toISOString()
+    };
+    dcSaveBtn.disabled = true;
+    try {
+      await window.BattleOfCreationsStore.saveDeck(deck);
+      window.location.href = "decks.html";
+    } catch (error) {
+      showDcMessage(error.message || "Could not save deck.", true);
+    } finally {
+      dcSaveBtn.disabled = false;
+    }
+  });
+
+  function showDcMessage(text, isError = false) {
+    if (!dcMessage) return;
+    dcMessage.textContent = text;
+    dcMessage.hidden = false;
+    dcMessage.classList.toggle("is-error", isError);
+    setTimeout(() => { dcMessage.hidden = true; }, 3500);
+  }
+
+  // ---- Load deck (edit mode) ----
+  async function loadDeckCreator() {
+    const user = await sessionReady;
+    if (!user) return;
+    try {
+      dcAllCards = await window.BattleOfCreationsStore.getMyCards();
+      if (editDeckId) {
+        if (dcTitleEl) dcTitleEl.textContent = "Edit Deck";
+        const decks = await window.BattleOfCreationsStore.getMyDecks();
+        const existing = decks.find((d) => d.id === editDeckId);
+        if (existing) {
+          if (dcNameInput) {
+            dcNameInput.value = existing.name || existing.deckName || "";
+            if (dcNameCount) dcNameCount.textContent = `${dcNameInput.value.length}/50`;
+          }
+          if (existing.thumbnailImage) {
+            dcThumbnailDataUrl = existing.thumbnailImage;
+            if (dcThumbPreview) { dcThumbPreview.src = dcThumbnailDataUrl; dcThumbPreview.hidden = false; }
+            const hint = dcThumbLabel?.querySelector(".dc-thumb-label-text");
+            if (hint) hint.hidden = true;
+            const icon = dcThumbLabel?.querySelector(".dc-thumb-icon");
+            if (icon) icon.hidden = true;
+          }
+          const ids = Array.isArray(existing.cardIds) ? existing.cardIds : [];
+          ids.forEach((id, idx) => {
+            if (idx >= DC_MAX) return;
+            const card = dcAllCards.find((c) => c.id === id);
+            if (card) dcSlots[idx] = card;
+          });
+        }
+      }
+    } catch (_) { /* ignore */ }
+    dcRenderSlots();
+    dcRenderCollection();
+    dcClearSelectedCard();
+  }
+
+  loadDeckCreator();
 }
 
 const cardCreator = document.querySelector("[data-card-creator]");
