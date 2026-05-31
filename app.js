@@ -1531,7 +1531,8 @@ if (deckCreatorEl) {
       rows.push(["Attack Points", String(card.attack ?? 0)]);
       rows.push(["Defense Points", String(card.defense ?? 0)]);
     }
-    rows.push(["Effect", dcCardEffect(card)]);
+    const isEffectMonster = type === "monster" && String(card.monsterType || "Effect").toLowerCase() === "effect";
+    if (!isEffectMonster) rows.push(["Effect", dcCardEffect(card)]);
     rows.push(["Effect Description", dcCardDescription(card)]);
 
     const dl = document.createElement("dl");
