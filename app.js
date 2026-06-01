@@ -1484,42 +1484,59 @@ if (deckCreatorEl) {
     artBeast.setAttribute("aria-hidden", "true");
     if (card.uploadedImage) { artWrap.classList.add("has-upload"); artImg.src = card.uploadedImage; }
 
-    // Deck toggle icon overlaid on art (top-right)
-    const deckBtn = document.createElement("button");
-    deckBtn.type = "button";
-    deckBtn.className = "dc-sel-deck-btn";
-    function dcUpdateDeckBtn() {
-      const inDeck = dcSlots.some(s => s && s.id === card.id);
+    // Deck stepper: - [count] + overlaid on art (top-right)
+    const stepperWrap = document.createElement("div");
+    stepperWrap.className = "dc-sel-stepper";
+
+    const btnMinus = document.createElement("button");
+    btnMinus.type = "button";
+    btnMinus.className = "dc-stepper-btn dc-stepper-minus";
+    btnMinus.textContent = "−";
+    btnMinus.setAttribute("aria-label", "Remove from deck");
+
+    const countDisplay = document.createElement("span");
+    countDisplay.className = "dc-stepper-count";
+
+    const btnPlus = document.createElement("button");
+    btnPlus.type = "button";
+    btnPlus.className = "dc-stepper-btn dc-stepper-plus";
+    btnPlus.textContent = "+";
+    btnPlus.setAttribute("aria-label", "Add to deck");
+
+    function dcUpdateStepper() {
+      const count = dcSlots.filter(s => s && s.id === card.id).length;
       const isFull = dcFilledSlots() >= DC_MAX;
-      if (inDeck) {
-        deckBtn.textContent = "✕";
-        deckBtn.title = "Remove from deck";
-        deckBtn.dataset.state = "remove";
-        deckBtn.disabled = false;
-      } else {
-        deckBtn.textContent = "+";
-        deckBtn.title = isFull ? "Deck full" : "Add to deck";
-        deckBtn.dataset.state = isFull ? "full" : "add";
-        deckBtn.disabled = isFull;
-      }
+      countDisplay.textContent = String(count);
+      btnMinus.disabled = count === 0;
+      btnPlus.disabled = count >= 3 || (isFull && count === 0);
     }
-    dcUpdateDeckBtn();
-    deckBtn.addEventListener("click", (e) => {
+    dcUpdateStepper();
+
+    btnMinus.addEventListener("click", (e) => {
       e.stopPropagation();
-      const inDeck = dcSlots.some(s => s && s.id === card.id);
-      if (inDeck) {
-        const idx = [...dcSlots.keys()].filter(i => dcSlots[i] && dcSlots[i].id === card.id).pop();
-        if (idx !== undefined) dcSlots[idx] = null;
-      } else {
-        const emptyIdx = dcSlots.findIndex(s => s === null);
-        if (emptyIdx === -1) return;
-        dcSlots[emptyIdx] = card;
-      }
+      const idx = [...dcSlots.keys()].filter(i => dcSlots[i] && dcSlots[i].id === card.id).pop();
+      if (idx !== undefined) dcSlots[idx] = null;
       dcRenderSlots();
       dcUpdateSlotCount();
-      dcUpdateDeckBtn();
+      dcUpdateStepper();
+      dcRenderCollection();
     });
-    artWrap.append(artImg, artBeast, deckBtn);
+
+    btnPlus.addEventListener("click", (e) => {
+      e.stopPropagation();
+      const count = dcSlots.filter(s => s && s.id === card.id).length;
+      if (count >= 3 || dcFilledSlots() >= DC_MAX) return;
+      const emptyIdx = dcSlots.findIndex(s => s === null);
+      if (emptyIdx === -1) return;
+      dcSlots[emptyIdx] = card;
+      dcRenderSlots();
+      dcUpdateSlotCount();
+      dcUpdateStepper();
+      dcRenderCollection();
+    });
+
+    stepperWrap.append(btnMinus, countDisplay, btnPlus);
+    artWrap.append(artImg, artBeast, stepperWrap);
     dcSelectedPanel.append(artWrap);
 
     // Details table
@@ -1623,9 +1640,13 @@ if (deckCreatorEl) {
             dcRenderSlots();
             dcUpdateSlotCount();
             dcRenderCollection();
+            if (dcSelectedCard) dcShowSelectedCard(dcSelectedCard);
           });
           cell.addEventListener("keydown", (e) => {
-            if (e.key === "Enter" || e.key === " ") { dcSlots[idx] = null; dcRenderSlots(); dcUpdateSlotCount(); dcRenderCollection(); }
+            if (e.key === "Enter" || e.key === " ") {
+              dcSlots[idx] = null; dcRenderSlots(); dcUpdateSlotCount(); dcRenderCollection();
+              if (dcSelectedCard) dcShowSelectedCard(dcSelectedCard);
+            }
           });
         }
 
@@ -1644,6 +1665,7 @@ if (deckCreatorEl) {
           dcRenderSlots();
           dcUpdateSlotCount();
           dcRenderCollection();
+          if (dcSelectedCard) dcShowSelectedCard(dcSelectedCard);
         });
 
         rowEl.append(cell);
@@ -1744,7 +1766,7 @@ if (deckCreatorEl) {
       if (inDeckCount > 0) {
         const badge = document.createElement("span");
         badge.className = "dc-in-deck-badge";
-        badge.textContent = inDeckCount > 1 ? `In Deck ×${inDeckCount}` : "In Deck";
+        badge.textContent = String(inDeckCount);
         artDiv.append(badge);
       }
 
