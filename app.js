@@ -1069,21 +1069,22 @@ if (deckLibrary) {
   }
 
   function getDeckCardCounts(deck) {
-    const ids = new Set(getDeckCardIds(deck));
+    const cardIds = getDeckCardIds(deck);
     let monster = 0;
     let spell = 0;
     let trap = 0;
-    for (const card of allCards) {
-      if (!ids.has(card.id)) continue;
-      const t = String(card.cardType || "monster").toLowerCase();
+    for (const id of cardIds) {
+      const card = allCards.find((c) => c.id === id);
+      const t = String(card?.cardType || "monster").toLowerCase();
       if (t === "spell") spell++;
       else if (t === "trap") trap++;
       else monster++;
     }
-    return { total: ids.size, monster, spell, trap };
+    return { total: cardIds.length, monster, spell, trap };
   }
 
   function getDeckCoverImage(deck) {
+    if (deck.thumbnailImage) return deck.thumbnailImage;
     if (deck.coverCardId) {
       const cover = allCards.find((c) => c.id === deck.coverCardId);
       if (cover?.uploadedImage) return cover.uploadedImage;
