@@ -1,6 +1,7 @@
 const passwordButtons = Array.from(document.querySelectorAll("[data-toggle-password]"));
 const forms = Array.from(document.querySelectorAll("[data-form]"));
-const isProtectedPage = Boolean(document.querySelector(".home, [data-card-library], [data-card-creator]"));
+const isProtectedPage = Boolean(document.querySelector(".home, [data-card-library], [data-card-creator], [data-lobby], [data-deck-library], [data-deck-creator]"));
+const isGuestPage = Boolean(document.querySelector("[data-form='login'], [data-form='register'], [data-form='reset']"));
 let currentUser = null;
 const CARD_TYPE_LABELS = {
   monster: "Monster",
@@ -281,6 +282,11 @@ function hydrateCurrentUserUI() {
 const sessionReady = refreshSession().then((user) => {
   if (isProtectedPage && !user) {
     window.location.href = "index.html";
+    return null;
+  }
+
+  if (isGuestPage && user) {
+    window.location.href = "home.html";
     return null;
   }
 
@@ -3150,4 +3156,156 @@ if (cardCreator) {
   applyImagePosition();
   updateCardPreview();
   loadEditableCard();
+}
+
+// ===== Lobby =====
+const lobbyEl = document.querySelector("[data-lobby]");
+
+if (lobbyEl) {
+  const LOBBY_PAGE_SIZE = 10;
+
+  // Room data — populated via API when backend supports rooms
+  const MOCK_ROOMS = [];
+
+  const rankedTbody      = lobbyEl.querySelector("[data-ranked-rooms]");
+  const unrankedTbody    = lobbyEl.querySelector("[data-unranked-rooms]");
+  const rankedPagNav     = lobbyEl.querySelector("[data-ranked-pagination]");
+  const unrankedPagNav   = lobbyEl.querySelector("[data-unranked-pagination]");
+  const roomSearchInput  = lobbyEl.querySelector("[data-room-search]");
+  const createRoomBtn    = lobbyEl.querySelector("[data-create-room]");
+  const joinRoomBtn      = lobbyEl.querySelector("[data-join-room]");
+
+  let rankedPage   = 1;
+  let unrankedPage = 1;
+
+  function lobbyFilteredRooms(ranked) {
+    const query = String(roomSearchInput?.value || "").trim().toLowerCase();
+    return MOCK_ROOMS.filter((r) => {
+      if (r.ranked !== ranked) return false;
+      if (!query) return true;
+      return r.name.toLowerCase().includes(query) || r.creator.toLowerCase().includes(query);
+    });
+  }
+
+  function lobbyRenderRows(tbody, rooms, page) {
+    if (!tbody) return;
+    tbody.textContent = "";
+    const total     = rooms.length;
+    const pageCount = Math.max(1, Math.ceil(total / LOBBY_PAGE_SIZE));
+    const safePage  = Math.min(Math.max(page, 1), pageCount);
+    const start     = (safePage - 1) * LOBBY_PAGE_SIZE;
+    const pageRooms = rooms.slice(start, start + LOBBY_PAGE_SIZE);
+
+    if (pageRooms.length === 0) {
+      const tr = document.createElement("tr");
+      const td = document.createElement("td");
+      td.colSpan = 6;
+      td.className = "lobby-table-empty";
+      td.textContent = "No rooms found.";
+      tr.append(td);
+      tbody.append(tr);
+      return safePage;
+    }
+
+    pageRooms.forEach((room) => {
+      const isFull = room.status === "full";
+      const tr = document.createElement("tr");
+
+      // Room name
+      const nameTd = document.createElement("td");
+      const nameCell = document.createElement("span");
+      nameCell.className = "lobby-room-name-cell";
+      const dot = document.createElement("span");
+      dot.className = "lobby-room-dot";
+      nameCell.append(dot, document.createTextNode(room.name));
+      nameTd.append(nameCell);
+
+      // Creator
+      const creatorTd = document.createElement("td");
+      creatorTd.textContent = room.creator;
+
+      // Players
+      const playersTd = document.createElement("td");
+      playersTd.textContent = `${room.players}/${room.maxPlayers}`;
+
+      // Mode
+      const modeTd = document.createElement("td");
+      modeTd.textContent = room.mode;
+
+      // Status
+      const statusTd = document.createElement("td");
+      const statusSpan = document.createElement("span");
+      statusSpan.textContent = isFull ? "Full" : "Waiting";
+      statusSpan.className   = isFull ? "lobby-status-full" : "lobby-status-waiting";
+      statusTd.append(statusSpan);
+
+      // Join button
+      const actionTd = document.createElement("td");
+      const joinBtn  = document.createElement("button");
+      joinBtn.type      = "button";
+      joinBtn.className = "lobby-join-btn";
+      joinBtn.textContent = "JOIN";
+      joinBtn.disabled  = isFull;
+      joinBtn.addEventListener("click", () => lobbyHandleJoin(room));
+      actionTd.append(joinBtn);
+
+      tr.append(nameTd, creatorTd, playersTd, modeTd, statusTd, actionTd);
+      tbody.append(tr);
+    });
+
+    return safePage;
+  }
+
+  function lobbyRenderPagination(nav, rooms, currentPage, onPageChange) {
+    if (!nav) return;
+    nav.textContent = "";
+    const total     = rooms.length;
+    const pageCount = Math.max(1, Math.ceil(total / LOBBY_PAGE_SIZE));
+
+    function mkBtn(label, page, isActive, disabled) {
+      const btn = document.createElement("button");
+      btn.type = "button";
+      btn.className = "lobby-page-btn" + (isActive ? " is-active" : "");
+      btn.textContent = label;
+      btn.disabled = disabled;
+      if (!disabled) btn.addEventListener("click", () => onPageChange(page));
+      return btn;
+    }
+
+    nav.append(mkBtn("«", 1, false, currentPage === 1));
+    for (let p = 1; p <= pageCount; p++) {
+      nav.append(mkBtn(String(p), p, p === currentPage, false));
+    }
+    nav.append(mkBtn("»", pageCount, false, currentPage === pageCount));
+  }
+
+  function lobbyRender() {
+    const ranked   = lobbyFilteredRooms(true);
+    const unranked = lobbyFilteredRooms(false);
+    rankedPage   = lobbyRenderRows(rankedTbody, ranked, rankedPage);
+    unrankedPage = lobbyRenderRows(unrankedTbody, unranked, unrankedPage);
+    lobbyRenderPagination(rankedPagNav, ranked, rankedPage, (p) => { rankedPage = p; lobbyRender(); });
+    lobbyRenderPagination(unrankedPagNav, unranked, unrankedPage, (p) => { unrankedPage = p; lobbyRender(); });
+  }
+
+  function lobbyHandleJoin(room) {
+    // Placeholder: navigate to game room or show deck selection dialog
+    alert(`Joining "${room.name}" — this feature is coming soon!`);
+  }
+
+  roomSearchInput?.addEventListener("input", () => {
+    rankedPage = 1;
+    unrankedPage = 1;
+    lobbyRender();
+  });
+
+  createRoomBtn?.addEventListener("click", () => {
+    alert("Create Room — this feature is coming soon!");
+  });
+
+  joinRoomBtn?.addEventListener("click", () => {
+    roomSearchInput?.focus();
+  });
+
+  lobbyRender();
 }

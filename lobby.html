@@ -1,0 +1,178 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Battle of Creations | Lobby</title>
+    <meta
+      name="description"
+      content="Join or create a duel room in the Battle of Creations lobby."
+    >
+    <link rel="stylesheet" href="styles.css">
+  </head>
+  <body>
+    <main class="creator-page lobby-page" data-lobby aria-label="Battle of Creations lobby">
+
+      <!-- ── Sidebar nav ── -->
+      <aside class="creator-sidebar" aria-label="Game navigation">
+        <a class="creator-brand" href="home.html" aria-label="Battle of Creations home">
+          <span class="creator-brand-mark" aria-hidden="true"></span>
+          <strong>Battle<br>of<br>Creations</strong>
+          <small>Card Battle Game</small>
+        </a>
+
+        <nav class="creator-nav">
+          <a class="creator-nav-item" href="home.html">
+            <span class="mini-icon mini-home" aria-hidden="true"></span>
+            <span>Home</span>
+          </a>
+          <a class="creator-nav-item" href="lobby.html">
+            <span class="mini-icon mini-duel" aria-hidden="true"></span>
+            <span>Duel Now</span>
+          </a>
+          <a class="creator-nav-item" href="cards.html">
+            <span class="mini-icon mini-card" aria-hidden="true"></span>
+            <span>Card Creator</span>
+          </a>
+          <a class="creator-nav-item" href="decks.html">
+            <span class="mini-icon mini-deck" aria-hidden="true"></span>
+            <span>Deck Constructor</span>
+          </a>
+          <a class="creator-nav-item is-current" href="lobby.html" aria-current="page">
+            <span class="mini-icon mini-lobby" aria-hidden="true"></span>
+            <span>Lobby</span>
+          </a>
+          <a class="creator-nav-item" href="home.html#leaderboards">
+            <span class="mini-icon mini-trophy" aria-hidden="true"></span>
+            <span>Leaderboards</span>
+          </a>
+          <a class="creator-nav-item" href="home.html#rewards">
+            <span class="mini-icon mini-chest" aria-hidden="true"></span>
+            <span>Rewards</span>
+          </a>
+          <a class="creator-nav-item" href="index.html" data-logout>
+            <span class="mini-icon mini-logout" aria-hidden="true"></span>
+            <span>Logout</span>
+          </a>
+        </nav>
+      </aside>
+
+      <!-- ── Main shell ── -->
+      <section class="lobby-shell">
+
+        <!-- Top bar: title + player HUD -->
+        <header class="lobby-topbar">
+          <div class="lobby-title-wrap">
+            <h1 class="lobby-heading">Lobby</h1>
+            <p class="lobby-subtitle">Join a room and duel your opponents!</p>
+          </div>
+
+          <div class="lobby-player-hud">
+            <div class="lobby-player-avatar" aria-hidden="true"></div>
+            <div class="lobby-player-info">
+              <strong data-player-username>Player</strong>
+              <span data-player-level>Level 1</span>
+              <div class="xp-track" aria-label="Experience points">
+                <span data-player-xp-track style="width: 0%"></span>
+              </div>
+              <small data-player-xp>0 / 1000</small>
+            </div>
+            <div class="coin-card" aria-label="Gold balance">
+              <span class="coin-icon" aria-hidden="true"></span>
+              <strong data-player-gold>0</strong>
+            </div>
+          </div>
+        </header>
+
+        <!-- Two room panels -->
+        <div class="lobby-panels">
+
+          <!-- Ranked Rooms -->
+          <section class="lobby-panel" aria-labelledby="ranked-title">
+            <header class="lobby-panel-header">
+              <span class="lobby-panel-icon lobby-icon-ranked" aria-hidden="true"></span>
+              <h2 id="ranked-title">Ranked Rooms</h2>
+            </header>
+            <div class="lobby-table-wrap">
+              <table class="lobby-table">
+                <thead>
+                  <tr>
+                    <th scope="col">Room Name</th>
+                    <th scope="col">Creator</th>
+                    <th scope="col">Players</th>
+                    <th scope="col">Mode</th>
+                    <th scope="col">Status</th>
+                    <th scope="col"><span class="sr-only">Action</span></th>
+                  </tr>
+                </thead>
+                <tbody data-ranked-rooms aria-live="polite"></tbody>
+              </table>
+            </div>
+            <nav class="lobby-pagination" data-ranked-pagination aria-label="Ranked rooms pages"></nav>
+          </section>
+
+          <!-- Unranked Rooms -->
+          <section class="lobby-panel" aria-labelledby="unranked-title">
+            <header class="lobby-panel-header">
+              <span class="lobby-panel-icon lobby-icon-unranked" aria-hidden="true"></span>
+              <h2 id="unranked-title">Unranked Rooms</h2>
+            </header>
+            <div class="lobby-table-wrap">
+              <table class="lobby-table">
+                <thead>
+                  <tr>
+                    <th scope="col">Room Name</th>
+                    <th scope="col">Creator</th>
+                    <th scope="col">Players</th>
+                    <th scope="col">Mode</th>
+                    <th scope="col">Status</th>
+                    <th scope="col"><span class="sr-only">Action</span></th>
+                  </tr>
+                </thead>
+                <tbody data-unranked-rooms aria-live="polite"></tbody>
+              </table>
+            </div>
+            <nav class="lobby-pagination" data-unranked-pagination aria-label="Unranked rooms pages"></nav>
+          </section>
+
+        </div>
+
+        <!-- Bottom action bar -->
+        <footer class="lobby-actionbar">
+          <button class="lobby-btn lobby-btn-create" type="button" data-create-room>
+            <span class="lobby-btn-icon lobby-btn-icon-create" aria-hidden="true"></span>
+            <span class="lobby-btn-text">
+              <span class="lobby-btn-main">Create Room</span>
+              <span class="lobby-btn-sub">Host your own duel room</span>
+            </span>
+          </button>
+          <button class="lobby-btn lobby-btn-join" type="button" data-join-room>
+            <span class="lobby-btn-icon lobby-btn-icon-join" aria-hidden="true"></span>
+            <span class="lobby-btn-text">
+              <span class="lobby-btn-main">Join Room</span>
+              <span class="lobby-btn-sub">Join an existing room</span>
+            </span>
+          </button>
+          <label class="lobby-search-label">
+            <span class="lobby-search-icon" aria-hidden="true"></span>
+            <input
+              class="lobby-search-input"
+              type="search"
+              placeholder="Search room name or creator username..."
+              data-room-search
+              aria-label="Search rooms"
+            >
+          </label>
+        </footer>
+
+        <p class="lobby-tip" role="note">
+          <span class="lobby-tip-icon" aria-hidden="true">ℹ</span>
+          Tip: Ranked rooms affect your rank. Unranked rooms are for fun and practice.
+        </p>
+
+      </section>
+    </main>
+
+    <script src="app.js"></script>
+  </body>
+</html>
