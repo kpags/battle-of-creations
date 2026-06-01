@@ -20,6 +20,20 @@ Original prompt: Add a server side for user account so it is secured
 - Effect monsters now have a "Can be used ONCE per turn" checkbox, saved as `effectOncePerTurn`, restored in edit mode, and shown as Usage in the card detail pane.
 - Saving a card now redirects to `cards.html` with the saved card selected in the library detail pane.
 
+## 2026-06-01
+
+- Deck creator slot rows now size fluidly inside their pane and stay centered at narrow widths.
+- The deck creator stacked layout breakpoint moved to 760px so the four-pane layout stops squeezing the deck slots off-center on smaller screens.
+- Verified with a Playwright layout harness at 800px, 703px, and 480px viewport widths; deck slot center offset was 0px at the stacked widths and within 0.5px at 800px.
+- Added global themed scrollbar styling for scrollable app surfaces, with dark-gold default rails, blue hover/active thumb states, and muted inactive/disabled styling.
+- Verified scrollbar pseudo-styles in Playwright: root and pane scrollbars report the new 18px width and ornate gradient thumb backgrounds.
+- Selected Card pane now expands into the remaining deck-creator width instead of being capped at 320px, and its preview/details stretch full-width while staying center-aligned.
+- Verified selected pane responsiveness in Playwright at 1900px, 1100px, 703px, and 480px; preview/details stayed centered with no horizontal overflow.
+- Deck Details now uses the same flexible pane sizing as Selected Card, so both panes stay nearly equal width across desktop/tablet sizes and stack full-width on small screens.
+- Verified Deck Details vs Selected Card widths in Playwright at 1900px, 1400px, 1100px, 900px, 800px, 703px, and 480px; width delta was 0px or within rounding and no horizontal overflow was detected.
+- Selected Card details now omit the separate Effect row and show only Effect Description, with the displayed description's first letter capitalized.
+- Verified with Playwright that the selected-card table has no Effect row and displays `Special summon...` with an uppercase first letter.
+
 ## TODO
 
 - For production deployment, replace the demo reset-password endpoint with an email token flow and run behind HTTPS so cookies can also use the `Secure` flag.

@@ -17,10 +17,114 @@
   --danger: #ff6f6f;
   --success: #8bdc73;
   --radius: 7px;
+  --scrollbar-size: 18px;
+  --scrollbar-gold: #caa15c;
+  --scrollbar-gold-deep: #5a3817;
+  --scrollbar-blue: #0078d7;
+  --scrollbar-blue-glow: #12a8ff;
+  --scrollbar-iron: #090b0b;
 }
 
 * {
   box-sizing: border-box;
+  scrollbar-color: var(--scrollbar-gold-deep) var(--scrollbar-iron);
+  scrollbar-width: thin;
+}
+
+*::-webkit-scrollbar {
+  width: var(--scrollbar-size);
+  height: var(--scrollbar-size);
+  background: #050606;
+}
+
+*::-webkit-scrollbar-track {
+  background:
+    linear-gradient(90deg, transparent 0 4px, rgba(202, 161, 92, 0.45) 4px 5px, transparent 5px 13px, rgba(202, 161, 92, 0.45) 13px 14px, transparent 14px),
+    linear-gradient(90deg, #040505 0 6px, #111514 6px 12px, #040505 12px 100%);
+  border-inline: 1px solid rgba(202, 161, 92, 0.28);
+  box-shadow:
+    inset 0 0 0 1px rgba(0, 0, 0, 0.85),
+    inset 0 0 12px rgba(0, 0, 0, 0.8);
+}
+
+*::-webkit-scrollbar-thumb {
+  min-height: 64px;
+  min-width: 64px;
+  border: 3px solid transparent;
+  border-radius: 2px;
+  background:
+    radial-gradient(circle at 50% 50%, rgba(242, 197, 98, 0.82) 0 2px, transparent 3px),
+    linear-gradient(45deg, transparent 42%, rgba(202, 161, 92, 0.62) 43% 47%, transparent 48% 52%, rgba(202, 161, 92, 0.5) 53% 57%, transparent 58%),
+    linear-gradient(180deg, #1c1308 0%, #050706 48%, #201409 100%) padding-box,
+    linear-gradient(180deg, #f0c66b 0%, #5a3817 42%, #caa15c 100%) border-box;
+  box-shadow:
+    inset 0 0 0 1px rgba(0, 0, 0, 0.92),
+    inset 0 12px 18px rgba(255, 210, 112, 0.08),
+    0 0 8px rgba(202, 161, 92, 0.18);
+}
+
+*::-webkit-scrollbar-thumb:hover {
+  background:
+    radial-gradient(circle at 50% 50%, rgba(255, 218, 119, 0.92) 0 2px, transparent 3px),
+    linear-gradient(45deg, transparent 42%, rgba(202, 161, 92, 0.72) 43% 47%, transparent 48% 52%, rgba(202, 161, 92, 0.6) 53% 57%, transparent 58%),
+    linear-gradient(180deg, #06375a 0%, #06131d 48%, #005a9f 100%) padding-box,
+    linear-gradient(180deg, #ffd881 0%, #8b5d21 40%, #00a6ff 100%) border-box;
+  box-shadow:
+    inset 0 0 0 1px rgba(0, 0, 0, 0.9),
+    0 0 10px rgba(18, 168, 255, 0.55),
+    0 0 4px rgba(202, 161, 92, 0.55);
+}
+
+*::-webkit-scrollbar-thumb:active {
+  background:
+    radial-gradient(circle at 50% 50%, rgba(255, 229, 137, 1) 0 2px, transparent 3px),
+    linear-gradient(45deg, transparent 42%, rgba(255, 217, 132, 0.78) 43% 47%, transparent 48% 52%, rgba(0, 174, 255, 0.8) 53% 57%, transparent 58%),
+    linear-gradient(180deg, #0a65aa 0%, #05243a 45%, #0078d7 100%) padding-box,
+    linear-gradient(180deg, #ffe08d 0%, #936226 36%, #12a8ff 100%) border-box;
+  box-shadow:
+    inset 0 0 0 1px rgba(0, 0, 0, 0.86),
+    0 0 14px rgba(18, 168, 255, 0.72);
+}
+
+*::-webkit-scrollbar-thumb:window-inactive,
+*::-webkit-scrollbar-thumb:disabled {
+  background:
+    radial-gradient(circle at 50% 50%, rgba(120, 120, 120, 0.55) 0 2px, transparent 3px),
+    linear-gradient(45deg, transparent 42%, rgba(120, 120, 120, 0.38) 43% 47%, transparent 48% 52%, rgba(120, 120, 120, 0.32) 53% 57%, transparent 58%),
+    linear-gradient(180deg, #171717 0%, #070707 48%, #1f1f1f 100%) padding-box,
+    linear-gradient(180deg, #5f5f5f 0%, #242424 42%, #555 100%) border-box;
+  box-shadow: inset 0 0 0 1px rgba(0, 0, 0, 0.92);
+}
+
+*::-webkit-scrollbar-button:single-button {
+  width: var(--scrollbar-size);
+  height: var(--scrollbar-size);
+  background:
+    linear-gradient(45deg, transparent 25%, rgba(202, 161, 92, 0.86) 25% 30%, transparent 30% 70%, rgba(202, 161, 92, 0.72) 70% 75%, transparent 75%),
+    linear-gradient(135deg, transparent 25%, rgba(202, 161, 92, 0.86) 25% 30%, transparent 30% 70%, rgba(202, 161, 92, 0.72) 70% 75%, transparent 75%),
+    radial-gradient(circle at 50% 50%, #1c1308 0 42%, transparent 43%),
+    linear-gradient(180deg, #050606, #11100b);
+  border: 1px solid rgba(202, 161, 92, 0.5);
+  box-shadow: inset 0 0 0 1px rgba(0, 0, 0, 0.85);
+}
+
+*::-webkit-scrollbar-button:single-button:hover {
+  border-color: rgba(18, 168, 255, 0.78);
+  box-shadow:
+    inset 0 0 0 1px rgba(0, 0, 0, 0.86),
+    0 0 8px rgba(18, 168, 255, 0.45);
+}
+
+*::-webkit-scrollbar-button:single-button:disabled {
+  border-color: rgba(110, 110, 110, 0.45);
+  filter: grayscale(1) brightness(0.62);
+  box-shadow: inset 0 0 0 1px rgba(0, 0, 0, 0.9);
+}
+
+*::-webkit-scrollbar-corner {
+  background:
+    radial-gradient(circle at 50% 50%, rgba(202, 161, 92, 0.4), transparent 45%),
+    #050606;
 }
 
 [hidden] {
@@ -4034,9 +4138,9 @@ body.dc-fullpage {
 
 /* ===== Pane 2 - Deck Grid (CENTER — main focus) ===== */
 .dc-pane-grid {
-  flex: 1;
+  flex: 0 1 400px;
   min-width: 100px;
-  width: auto;
+  width: 400px;
   max-width: 400px;
   background: rgba(0,0,0,0.25);
   border-right-color: rgba(180,140,60,0.18);
@@ -4045,9 +4149,11 @@ body.dc-fullpage {
 }
 
 .dc-grid-wrap {
+  --dc-slot-gap: 4px;
+  --dc-slot-max: 72px;
   display: flex;
   flex-direction: column;
-  align-items: center;
+  align-items: stretch;
   padding: 16px 12px 12px;
   width: 100%;
   box-sizing: border-box;
@@ -4060,13 +4166,18 @@ body.dc-fullpage {
 .dc-rows {
   display: flex;
   flex-direction: column;
-  gap: 4px;
+  gap: var(--dc-slot-gap);
+  width: 100%;
+  max-width: calc((var(--dc-slot-max) * 5) + (var(--dc-slot-gap) * 4));
+  align-self: center;
+  margin-inline: auto;
 }
 
 .dc-slot-row {
   display: grid;
-  grid-template-columns: repeat(5, 72px);
-  gap: 4px;
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+  gap: var(--dc-slot-gap);
+  width: 100%;
 }
 
 .dc-row-label { display: none; }
@@ -4083,7 +4194,8 @@ body.dc-fullpage {
   justify-content: center;
   overflow: hidden;
   box-sizing: border-box;
-  width: 72px;
+  width: 100%;
+  min-width: 0;
   aspect-ratio: 3 / 4;
 }
 
@@ -4170,10 +4282,10 @@ body.dc-fullpage {
 /* ===== Right column wrapper ===== */
 /* ===== Pane 3 - Deck Details + Filters ===== */
 .dc-pane-sidebar {
-  width: 260px;
-  min-width: 260px;
-  max-width: 260px;
-  flex-shrink: 0;
+  flex: 1 1 320px;
+  width: auto;
+  min-width: 240px;
+  max-width: none;
   background: rgba(4,2,0,0.35);
   border-right: 1px solid rgba(180,140,60,0.12);
   border-bottom: none;
@@ -4598,13 +4710,14 @@ body.dc-fullpage {
 /* ===== Pane 4 - Selected Card (stacked bottom of right col) ===== */
 /* ===== Pane 4 - Selected Card ===== */
 .dc-pane-selected {
-  flex: 1;
-  min-width: 220px;
-  max-width: 320px;
+  flex: 1 1 320px;
+  min-width: 240px;
+  max-width: none;
   background: rgba(4,2,0,0.45);
   border-left: 1px solid rgba(180,140,60,0.15);
   border-right: none;
   overflow-y: auto;
+  align-items: stretch;
 }
 
 .dc-selected-heading {
@@ -4621,13 +4734,17 @@ body.dc-fullpage {
 }
 
 .dc-selected-body {
-  padding: 6px 4px 10px;
+  width: 100%;
+  padding: 6px 6px 10px;
   display: flex;
   flex-direction: column;
-  gap: 4px;
+  align-items: center;
+  gap: 6px;
+  box-sizing: border-box;
 }
 
 .dc-selected-empty {
+  width: 100%;
   font-size: 0.72rem;
   color: rgba(200,180,130,0.38);
   text-align: center;
@@ -4638,6 +4755,7 @@ body.dc-fullpage {
 
 .dc-sel-art {
   width: 100%;
+  max-width: 100%;
   aspect-ratio: 3/4;
   border-radius: 4px;
   border: 1px solid rgba(180,140,60,0.22);
@@ -4667,6 +4785,7 @@ body.dc-fullpage {
   gap: 0;
   margin: 0;
   width: 100%;
+  max-width: 100%;
   box-sizing: border-box;
   border: 1px solid rgba(180,140,60,0.12);
   border-radius: 4px;
@@ -4769,35 +4888,33 @@ body.dc-fullpage {
 /* ── 1400px: slight shrink on side panes ── */
 @media (max-width: 1400px) {
   .dc-pane-cards   { width: 380px; min-width: 200px; max-width: 380px; }
-  .dc-pane-sidebar { width: 230px; min-width: 230px; max-width: 230px; }
-  .dc-pane-selected{ min-width: 200px; max-width: 280px; }
+  .dc-pane-sidebar { min-width: 220px; max-width: none; }
+  .dc-pane-selected{ min-width: 220px; max-width: none; }
 }
 
 /* ── 1100px: narrower cards pane, 3-col card grid, smaller slot cells ── */
 @media (max-width: 1100px) {
   .dc-pane-cards   { width: 280px; min-width: 160px; max-width: 280px; }
   .dc-card-grid    { grid-template-columns: repeat(3, 1fr); }
-  .dc-pane-sidebar { width: 210px; min-width: 210px; max-width: 210px; }
-  .dc-pane-selected{ min-width: 180px; max-width: 240px; }
-  .dc-slot-row     { grid-template-columns: repeat(5, 60px); }
-  .dc-slot-cell    { width: 60px; }
+  .dc-pane-sidebar { min-width: 200px; max-width: none; }
+  .dc-pane-selected{ min-width: 200px; max-width: none; }
+  .dc-grid-wrap    { --dc-slot-max: 60px; }
 }
 
 /* ── 900px: 2-col cards, smaller slots, hide brand text ── */
 @media (max-width: 900px) {
   .dc-pane-cards   { width: 200px; min-width: 140px; max-width: 200px; }
   .dc-card-grid    { grid-template-columns: repeat(2, 1fr); }
-  .dc-pane-sidebar { width: 190px; min-width: 190px; max-width: 190px; }
-  .dc-pane-selected{ min-width: 160px; max-width: 200px; }
-  .dc-slot-row     { grid-template-columns: repeat(5, 52px); }
-  .dc-slot-cell    { width: 52px; }
+  .dc-pane-sidebar { min-width: 180px; max-width: none; }
+  .dc-pane-selected{ min-width: 180px; max-width: none; }
+  .dc-grid-wrap    { --dc-slot-max: 52px; }
   .dc-brand-text   { display: none; }
   .dc-topbar-divider { display: none; }
   .dc-action-btn   { padding: 7px 12px; font-size: 0.75rem; }
 }
 
-/* ── 700px: stack body vertically ── */
-@media (max-width: 700px) {
+/* ── 760px: stack body vertically before panes squeeze the slot grid ── */
+@media (max-width: 760px) {
   body.dc-fullpage { overflow-y: auto; height: auto; }
   .dc-page         { height: auto; min-height: 100vh; overflow: visible; }
   .dc-body {
@@ -4816,8 +4933,7 @@ body.dc-fullpage {
   .dc-pane-cards { flex-shrink: 0; }
   .dc-card-grid  { grid-template-columns: repeat(4, 1fr); }
   .dc-pane-grid  { overflow-y: visible; }
-  .dc-slot-row   { grid-template-columns: repeat(5, 72px); }
-  .dc-slot-cell  { width: 72px; }
+  .dc-grid-wrap  { --dc-slot-max: 72px; }
   .dc-topbar {
     flex-wrap: wrap;
     padding: 8px 14px;
@@ -4831,8 +4947,7 @@ body.dc-fullpage {
 /* ── 480px: minimal topbar, smaller slots ── */
 @media (max-width: 480px) {
   .dc-card-grid { grid-template-columns: repeat(3, 1fr); }
-  .dc-slot-row  { grid-template-columns: repeat(5, 56px); }
-  .dc-slot-cell { width: 56px; }
+  .dc-grid-wrap { --dc-slot-max: 56px; }
   .dc-action-btn { padding: 6px 10px; font-size: 0.7rem; }
   .dc-brand-emblem { width: 38px; height: 38px; }
 }

@@ -1440,15 +1440,17 @@ if (deckCreatorEl) {
     return ["monster", "spell", "trap"].includes(card.cardType) ? card.cardType : "monster";
   }
   function dcCardName(card) { return String(card.cardName || "Unnamed Creation"); }
-  function dcCardDescription(card) {
-    if (dcCardType(card) === "monster") return cardEffectDescription(card);
-    if (dcCardType(card) === "spell") return String(card.spellEffectDescription || "No effect selected.");
-    return String(card.trapEffectDescription || "No effect selected.");
+  function dcCapitalizeFirstLetter(value) {
+    const text = String(value || "").trim();
+    if (!text) return "";
+    return `${text.charAt(0).toUpperCase()}${text.slice(1)}`;
   }
-  function dcCardEffect(card) {
-    if (dcCardType(card) === "spell") return String(card.spellEffect || "—");
-    if (dcCardType(card) === "trap") return String(card.trapEffect || "—");
-    return String(card.effect || card.effectTemplate || "—");
+  function dcCardDescription(card) {
+    let description = "";
+    if (dcCardType(card) === "monster") description = cardEffectDescription(card);
+    else if (dcCardType(card) === "spell") description = card.spellEffectDescription || "No effect selected.";
+    else description = card.trapEffectDescription || "No effect selected.";
+    return dcCapitalizeFirstLetter(description);
   }
   function dcCardPosition(card) {
     return { x: Number(card.imagePosition?.x) || 50, y: Number(card.imagePosition?.y) || 50 };
@@ -1531,8 +1533,6 @@ if (deckCreatorEl) {
       rows.push(["Attack Points", String(card.attack ?? 0)]);
       rows.push(["Defense Points", String(card.defense ?? 0)]);
     }
-    const isEffectMonster = type === "monster" && String(card.monsterType || "Effect").toLowerCase() === "effect";
-    if (!isEffectMonster) rows.push(["Effect", dcCardEffect(card)]);
     rows.push(["Effect Description", dcCardDescription(card)]);
 
     const dl = document.createElement("dl");
@@ -1559,7 +1559,7 @@ if (deckCreatorEl) {
     dcSelectedPanel.append(hint);
     const dl = document.createElement("dl");
     dl.className = "dc-sel-dl dc-sel-dl-empty";
-    [["Card Type","—"],["Card Name","—"],["Level","—"],["Monster Type","—"],["Attack Points","—"],["Defense Points","—"],["Effect","—"],["Effect Description","—"]].forEach(([label, val]) => {
+    [["Card Type","—"],["Card Name","—"],["Level","—"],["Monster Type","—"],["Attack Points","—"],["Defense Points","—"],["Effect Description","—"]].forEach(([label, val]) => {
       const dt = document.createElement("dt"); dt.textContent = label;
       const dd = document.createElement("dd"); dd.textContent = val;
       dl.append(dt, dd);
