@@ -17,7 +17,6 @@
         <span class="bf-turn-word">Turn</span>
         <span class="bf-turn-num" data-bf-turn>1</span>
       </div>
-      <button class="bf-end-turn-btn" data-bf-end-turn type="button">End Turn</button>
     </header>
 
     <!-- ── Board ── -->
@@ -31,12 +30,19 @@
             <div class="bf-ci-name" data-ci-name></div>
             <div class="bf-ci-type" data-ci-type></div>
             <div class="bf-ci-stats" data-ci-stats hidden>
+              <span class="bf-ci-stat"><span class="bf-ci-stat-label">LEVEL</span><span data-ci-level></span></span>
               <span class="bf-ci-stat"><span class="bf-ci-stat-label">ATK</span><span data-ci-atk></span></span>
               <span class="bf-ci-stat"><span class="bf-ci-stat-label">DEF</span><span data-ci-def></span></span>
             </div>
             <div class="bf-ci-desc" data-ci-desc></div>
           </div>
           <div class="bf-ci-empty" data-ci-empty>Hover a card<br>to preview</div>
+        </div>
+        <div class="bf-battle-log" data-battle-log aria-live="polite">
+          <div class="bf-battle-log-head">Battle Log</div>
+          <div class="bf-battle-log-list" data-battle-log-list>
+            <div class="bf-battle-log-empty" data-battle-log-empty>Battle messages will appear here.</div>
+          </div>
         </div>
       </div>
 
@@ -128,7 +134,7 @@
 
         <!-- AI area: GY above Deck -->
         <div class="bf-deck-area">
-          <div class="bf-gy-slot" data-ai-gy title="AI Graveyard" role="button" tabindex="-1" aria-label="AI Graveyard">
+          <div class="bf-gy-slot" data-ai-gy title="AI Graveyard" role="button" tabindex="0" aria-label="AI Graveyard">
             <span class="bf-slot-label">GY</span>
             <span class="bf-gy-count" data-ai-gy-count>0</span>
           </div>
@@ -142,6 +148,7 @@
 
         <!-- Player area: GY above Deck -->
         <div class="bf-deck-area">
+          <button class="bf-end-turn-btn" data-bf-end-turn type="button">End Turn</button>
           <div class="bf-gy-slot" data-player-gy title="Your Graveyard" role="button" tabindex="0" aria-label="Your Graveyard">
             <span class="bf-slot-label">GY</span>
             <span class="bf-gy-count" data-player-gy-count>0</span>
@@ -187,6 +194,33 @@
     <!-- Status / toast messages -->
     <div class="bf-status" data-bf-status hidden role="status" aria-live="polite">
       <span data-bf-status-msg></span>
+    </div>
+
+    <div class="bf-gy-dialog" data-gy-dialog hidden role="dialog" aria-modal="true" aria-labelledby="bf-gy-dialog-title">
+      <div class="bf-gy-dialog-panel">
+        <div class="bf-gy-dialog-head">
+          <div>
+            <span class="bf-gy-dialog-kicker" data-gy-owner>Graveyard</span>
+            <h2 class="bf-gy-dialog-title" id="bf-gy-dialog-title" data-gy-title>Graveyard</h2>
+          </div>
+          <button class="bf-gy-dialog-close" data-gy-close type="button" aria-label="Close graveyard">X</button>
+        </div>
+        <div class="bf-gy-table-wrap">
+          <table class="bf-gy-table">
+            <thead>
+              <tr>
+                <th scope="col">#</th>
+                <th scope="col">Card</th>
+                <th scope="col">Type</th>
+                <th scope="col">Level</th>
+                <th scope="col">ATK</th>
+                <th scope="col">DEF</th>
+              </tr>
+            </thead>
+            <tbody data-gy-table-body></tbody>
+          </table>
+        </div>
+      </div>
     </div>
 
   </div><!-- .bf-page -->
