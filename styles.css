@@ -5567,3 +5567,242 @@ body.dc-fullpage {
   .lobby-search-label { min-width: 100%; }
   .lobby-actionbar { gap: 8px; }
 }
+
+/* ── Duel Mode Buttons ── */
+button.home-tile {
+  appearance: none;
+  cursor: pointer;
+  font-family: inherit;
+  border: 1px solid rgba(218, 165, 83, 0.66);
+}
+
+button.creator-nav-item {
+  appearance: none;
+  cursor: pointer;
+  font-family: inherit;
+  background: none;
+  border: 1px solid transparent;
+  width: 100%;
+}
+
+/* ── Duel Mode Dialog ── */
+.duel-dialog-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 9000;
+  background: rgba(4, 6, 10, 0.82);
+  backdrop-filter: blur(3px);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  opacity: 0;
+  transition: opacity 0.22s ease;
+  pointer-events: none;
+}
+
+.duel-dialog-backdrop.is-open {
+  opacity: 1;
+  pointer-events: auto;
+}
+
+.duel-dialog {
+  position: relative;
+  width: min(460px, calc(100vw - 32px));
+  padding: 36px 32px 32px;
+  background:
+    radial-gradient(circle at 50% 0%, rgba(255, 78, 46, 0.18) 0%, transparent 60%),
+    repeating-linear-gradient(140deg, rgba(255,255,255,0.018) 0 1px, transparent 1px 7px),
+    linear-gradient(180deg, #16100c 0%, #0a0806 100%);
+  border: 1px solid rgba(218, 165, 83, 0.55);
+  border-radius: 4px;
+  box-shadow:
+    inset 0 0 0 1px #060504,
+    inset 0 0 0 3px rgba(201, 168, 76, 0.18),
+    inset 0 0 60px rgba(0,0,0,0.7),
+    0 24px 64px rgba(0,0,0,0.75),
+    0 0 0 1px rgba(0,0,0,0.6);
+  clip-path: polygon(3% 0, 97% 0, 100% 4%, 100% 96%, 97% 100%, 3% 100%, 0 96%, 0 4%);
+  transform: translateY(18px) scale(0.97);
+  transition: transform 0.24s ease, opacity 0.22s ease;
+  opacity: 0;
+}
+
+.duel-dialog-backdrop.is-open .duel-dialog {
+  transform: translateY(0) scale(1);
+  opacity: 1;
+}
+
+.duel-dialog::before {
+  position: absolute;
+  inset: 8px;
+  content: "";
+  pointer-events: none;
+  border: 1px solid rgba(236, 188, 101, 0.22);
+  clip-path: polygon(3% 0, 97% 0, 100% 4%, 100% 96%, 97% 100%, 3% 100%, 0 96%, 0 4%);
+}
+
+.duel-dialog::after {
+  position: absolute;
+  top: 0;
+  left: 50%;
+  width: 60%;
+  height: 1px;
+  content: "";
+  background: linear-gradient(90deg, transparent, rgba(255, 78, 46, 0.8), transparent);
+  transform: translateX(-50%);
+}
+
+.duel-dialog-close {
+  position: absolute;
+  top: 12px;
+  right: 14px;
+  width: 28px;
+  height: 28px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  appearance: none;
+  background: none;
+  border: 1px solid rgba(201, 168, 76, 0.25);
+  border-radius: 3px;
+  color: rgba(222, 200, 150, 0.55);
+  cursor: pointer;
+  font-size: 1rem;
+  line-height: 1;
+  transition: color 0.15s, border-color 0.15s, background 0.15s;
+}
+
+.duel-dialog-close:hover,
+.duel-dialog-close:focus-visible {
+  color: #fff4cf;
+  border-color: rgba(201, 168, 76, 0.6);
+  background: rgba(201, 168, 76, 0.08);
+  outline: none;
+}
+
+.duel-dialog-icon {
+  display: flex;
+  justify-content: center;
+  margin-bottom: 14px;
+}
+
+.duel-dialog-icon svg {
+  filter: drop-shadow(0 0 10px rgba(255, 78, 46, 0.55));
+}
+
+.duel-dialog-title {
+  margin: 0 0 6px;
+  font-size: 1.55rem;
+  font-weight: 700;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  text-align: center;
+  color: #f1c978;
+  text-shadow: 0 2px 0 #000, 0 0 18px rgba(255, 78, 46, 0.35);
+}
+
+.duel-dialog-sub {
+  margin: 0 0 28px;
+  font-size: 0.8rem;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  text-align: center;
+  color: rgba(222, 200, 150, 0.45);
+}
+
+.duel-dialog-options {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 14px;
+}
+
+.duel-dialog-option {
+  --opt-accent: #2185d5;
+  --opt-deep: #092b4a;
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 14px;
+  padding: 24px 16px 20px;
+  appearance: none;
+  background:
+    radial-gradient(circle at 50% 30%, color-mix(in srgb, var(--opt-accent) 38%, transparent), transparent 6rem),
+    linear-gradient(180deg, color-mix(in srgb, var(--opt-deep) 70%, #100d09), #080807 100%);
+  border: 1px solid rgba(218, 165, 83, 0.4);
+  border-radius: 3px;
+  color: #f0dcad;
+  cursor: pointer;
+  font-family: inherit;
+  clip-path: polygon(6% 0, 94% 0, 100% 8%, 100% 92%, 94% 100%, 6% 100%, 0 92%, 0 8%);
+  box-shadow:
+    inset 0 0 0 1px #060504,
+    inset 0 0 36px rgba(0,0,0,0.6),
+    0 6px 20px rgba(0,0,0,0.4);
+  transition: filter 0.18s, transform 0.18s, border-color 0.18s;
+}
+
+.duel-dialog-option::before {
+  position: absolute;
+  inset: 6px;
+  content: "";
+  pointer-events: none;
+  border: 1px solid rgba(236, 188, 101, 0.2);
+  clip-path: polygon(6% 0, 94% 0, 100% 8%, 100% 92%, 94% 100%, 6% 100%, 0 92%, 0 8%);
+}
+
+.duel-dialog-option::after {
+  position: absolute;
+  top: 0;
+  left: 50%;
+  width: 70%;
+  height: 1px;
+  content: "";
+  background: linear-gradient(90deg, transparent, var(--opt-accent), transparent);
+  transform: translateX(-50%);
+}
+
+.duel-dialog-option:hover,
+.duel-dialog-option:focus-visible {
+  filter: brightness(1.15);
+  transform: translateY(-3px);
+  border-color: rgba(218, 165, 83, 0.7);
+  outline: none;
+}
+
+.duel-dialog-option[data-duel-mode="online"] {
+  --opt-accent: #2185d5;
+  --opt-deep: #092b4a;
+}
+
+.duel-dialog-option[data-duel-mode="ai"] {
+  --opt-accent: #a64cee;
+  --opt-deep: #2b1042;
+}
+
+.duel-dialog-opt-icon {
+  width: 60px;
+  height: 60px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  filter: drop-shadow(0 0 8px color-mix(in srgb, var(--opt-accent) 60%, transparent));
+}
+
+.duel-dialog-opt-label {
+  font-size: 1rem;
+  font-weight: 700;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: #f1c978;
+  text-shadow: 0 1px 0 #000;
+}
+
+.duel-dialog-opt-sub {
+  font-size: 0.7rem;
+  letter-spacing: 0.04em;
+  color: rgba(222, 200, 150, 0.5);
+  text-align: center;
+  line-height: 1.3;
+}

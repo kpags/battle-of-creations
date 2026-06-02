@@ -3309,3 +3309,112 @@ if (lobbyEl) {
 
   lobbyRender();
 }
+
+// === Duel Mode Dialog ===
+(function initDuelModeDialog() {
+  const triggers = Array.from(document.querySelectorAll("[data-duel-now]"));
+  if (!triggers.length) return;
+
+  const backdrop = document.createElement("div");
+  backdrop.className = "duel-dialog-backdrop";
+  backdrop.setAttribute("role", "dialog");
+  backdrop.setAttribute("aria-modal", "true");
+  backdrop.setAttribute("aria-labelledby", "duel-dialog-title");
+  backdrop.innerHTML = `
+    <div class="duel-dialog">
+      <button class="duel-dialog-close" aria-label="Close" type="button">&#x2715;</button>
+
+      <div class="duel-dialog-icon">
+        <svg width="54" height="54" viewBox="0 0 54 54" fill="none" aria-hidden="true">
+          <polygon points="27,4 50,15 50,39 27,50 4,39 4,15" fill="none" stroke="#c9a84c" stroke-width="1.5" opacity="0.5"/>
+          <line x1="27" y1="8" x2="27" y2="46" stroke="#c9a84c" stroke-width="1.5" stroke-linecap="round" opacity="0.4"/>
+          <path d="M27 10 L32 22 L27 20 L22 22 Z" fill="#ff4e2e" opacity="0.9"/>
+          <rect x="25.5" y="20" width="3" height="20" rx="1" fill="url(#blade)" opacity="0.9"/>
+          <rect x="20" y="27" width="14" height="2" rx="1" fill="#c9a84c" opacity="0.8"/>
+          <defs>
+            <linearGradient id="blade" x1="0" y1="0" x2="0" y2="1">
+              <stop offset="0%" stop-color="#ffe8b0"/>
+              <stop offset="100%" stop-color="#a45a28"/>
+            </linearGradient>
+          </defs>
+        </svg>
+      </div>
+
+      <h2 class="duel-dialog-title" id="duel-dialog-title">Select Game Mode</h2>
+      <p class="duel-dialog-sub">Choose how you want to battle</p>
+
+      <div class="duel-dialog-options">
+        <button class="duel-dialog-option" type="button" data-duel-mode="online">
+          <span class="duel-dialog-opt-icon">
+            <svg width="44" height="44" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
+              <path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm-1 17.93c-3.94-.49-7-3.85-7-7.93s3.06-7.44 7-7.93v15.86zm2 0V4.07c3.94.49 7 3.85 7 7.93s-3.06 7.44-7 7.93z"/>
+            </svg>
+          </span>
+          <span class="duel-dialog-opt-label">Online</span>
+          <span class="duel-dialog-opt-sub">Battle real players in the lobby</span>
+        </button>
+        <button class="duel-dialog-option" type="button" data-duel-mode="ai">
+          <span class="duel-dialog-opt-icon">
+            <svg width="44" height="44" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
+              <path d="M12 2a2 2 0 0 1 2 2c0 .74-.4 1.39-1 1.73V7h1a7 7 0 0 1 7 7h1a1 1 0 0 1 1 1v3a1 1 0 0 1-1 1h-1v1a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-1H2a1 1 0 0 1-1-1v-3a1 1 0 0 1 1-1h1a7 7 0 0 1 7-7h1V5.73c-.6-.34-1-.99-1-1.73a2 2 0 0 1 2-2M7.5 13A2.5 2.5 0 0 0 5 15.5 2.5 2.5 0 0 0 7.5 18 2.5 2.5 0 0 0 10 15.5 2.5 2.5 0 0 0 7.5 13m9 0A2.5 2.5 0 0 0 14 15.5a2.5 2.5 0 0 0 2.5 2.5 2.5 2.5 0 0 0 2.5-2.5 2.5 2.5 0 0 0-2.5-2.5z"/>
+            </svg>
+          </span>
+          <span class="duel-dialog-opt-label">Vs AI</span>
+          <span class="duel-dialog-opt-sub">Train against the computer</span>
+        </button>
+      </div>
+    </div>
+  `;
+  document.body.appendChild(backdrop);
+
+  const dialog = backdrop.querySelector(".duel-dialog");
+  const closeBtn = backdrop.querySelector(".duel-dialog-close");
+
+  function openDialog() {
+    backdrop.classList.add("is-open");
+    closeBtn.focus();
+  }
+
+  function closeDialog() {
+    backdrop.classList.remove("is-open");
+  }
+
+  triggers.forEach(trigger => {
+    trigger.addEventListener("click", openDialog);
+  });
+
+  closeBtn.addEventListener("click", closeDialog);
+
+  backdrop.addEventListener("click", (e) => {
+    if (!dialog.contains(e.target)) closeDialog();
+  });
+
+  backdrop.addEventListener("keydown", (e) => {
+    if (e.key === "Escape") closeDialog();
+
+    // Trap focus inside dialog
+    if (e.key === "Tab") {
+      const focusable = Array.from(dialog.querySelectorAll("button, [tabindex]")).filter(el => !el.disabled);
+      const first = focusable[0];
+      const last = focusable[focusable.length - 1];
+      if (e.shiftKey && document.activeElement === first) {
+        e.preventDefault();
+        last.focus();
+      } else if (!e.shiftKey && document.activeElement === last) {
+        e.preventDefault();
+        first.focus();
+      }
+    }
+  });
+
+  backdrop.addEventListener("click", (e) => {
+    const option = e.target.closest("[data-duel-mode]");
+    if (!option) return;
+    closeDialog();
+    if (option.dataset.duelMode === "online") {
+      window.location.href = "lobby.html";
+    } else {
+      alert("Vs AI — coming soon!");
+    }
+  });
+})();
