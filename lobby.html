@@ -9,6 +9,7 @@
       content="Join or create a duel room in the Battle of Creations lobby."
     >
     <link rel="stylesheet" href="styles.css">
+    <link rel="icon" type="image/png" href="assets/game_picture.png">
   </head>
   <body>
     <main class="creator-page lobby-page" data-lobby aria-label="Battle of Creations lobby">
@@ -16,42 +17,36 @@
       <!-- ── Sidebar nav ── -->
       <aside class="creator-sidebar" aria-label="Game navigation">
         <a class="creator-brand" href="home.html" aria-label="Battle of Creations home">
-          <span class="creator-brand-mark" aria-hidden="true"></span>
-          <strong>Battle<br>of<br>Creations</strong>
-          <small>Card Battle Game</small>
+          <img class="creator-brand-img" src="assets/game_picture.png" alt="" aria-hidden="true">
         </a>
 
         <nav class="creator-nav">
           <a class="creator-nav-item" href="home.html">
-            <span class="mini-icon mini-home" aria-hidden="true"></span>
+            <img class="nav-icon" src="assets/icons/navigation/home_icon.png" alt="" aria-hidden="true">
             <span>Home</span>
           </a>
           <button class="creator-nav-item" type="button" data-duel-now>
-            <span class="mini-icon mini-duel" aria-hidden="true"></span>
+            <img class="nav-icon" src="assets/icons/navigation/duel_now_icon.png" alt="" aria-hidden="true">
             <span>Duel Now</span>
           </button>
           <a class="creator-nav-item" href="cards.html">
-            <span class="mini-icon mini-card" aria-hidden="true"></span>
+            <img class="nav-icon" src="assets/icons/navigation/card_creator_icon.png" alt="" aria-hidden="true">
             <span>Card Creator</span>
           </a>
           <a class="creator-nav-item" href="decks.html">
-            <span class="mini-icon mini-deck" aria-hidden="true"></span>
+            <img class="nav-icon" src="assets/icons/navigation/deck_constructor_icon.png" alt="" aria-hidden="true">
             <span>Deck Constructor</span>
           </a>
-          <a class="creator-nav-item is-current" href="lobby.html" aria-current="page">
-            <span class="mini-icon mini-lobby" aria-hidden="true"></span>
-            <span>Lobby</span>
-          </a>
           <a class="creator-nav-item" href="home.html#leaderboards">
-            <span class="mini-icon mini-trophy" aria-hidden="true"></span>
+            <img class="nav-icon" src="assets/icons/navigation/leaderboard_icon.png" alt="" aria-hidden="true">
             <span>Leaderboards</span>
           </a>
           <a class="creator-nav-item" href="home.html#rewards">
-            <span class="mini-icon mini-chest" aria-hidden="true"></span>
+            <img class="nav-icon" src="assets/icons/navigation/rewards_icon.png" alt="" aria-hidden="true">
             <span>Rewards</span>
           </a>
           <a class="creator-nav-item" href="index.html" data-logout>
-            <span class="mini-icon mini-logout" aria-hidden="true"></span>
+            <img class="nav-icon" src="assets/icons/navigation/logout_icon.png" alt="" aria-hidden="true">
             <span>Logout</span>
           </a>
         </nav>
@@ -68,7 +63,9 @@
           </div>
 
           <div class="lobby-player-hud">
-            <div class="lobby-player-avatar" aria-hidden="true"></div>
+            <div class="lobby-player-avatar" aria-hidden="true">
+              <img class="player-avatar-img" src="assets/icons/user_icon.png" alt="" aria-hidden="true">
+            </div>
             <div class="lobby-player-info">
               <strong data-player-username>Player</strong>
               <span data-player-level>Level 1</span>

@@ -1136,18 +1136,20 @@ button:disabled {
   flex: 0 0 54px;
   border: 1px solid rgba(80, 165, 236, 0.76);
   border-radius: 50%;
-  background:
-    conic-gradient(from 45deg, #062a49, #0b6cb4, #06101c, #c08b38, #062a49),
-    radial-gradient(circle, #0a0b0c 0 38%, transparent 39%);
+  background: radial-gradient(circle, #061422, #030810);
   box-shadow: 0 0 18px rgba(33, 133, 213, 0.45);
+  overflow: hidden;
+  display: flex;
+  align-items: center;
+  justify-content: center;
 }
 
-.player-avatar span {
-  position: absolute;
-  inset: 13px;
-  border: 1px solid #d8a757;
-  background: radial-gradient(circle, #ffffff 0 8%, var(--blue) 9% 42%, #06131f 43%);
-  transform: rotate(45deg);
+.player-avatar-img {
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+  mix-blend-mode: screen;
+  display: block;
 }
 
 .player-copy {
@@ -5067,10 +5069,12 @@ body.dc-fullpage {
   height: 46px;
   border-radius: 50%;
   border: 2px solid rgba(201,168,76,0.5);
-  background:
-    radial-gradient(circle at 40% 35%, rgba(33,133,213,0.55), transparent 60%),
-    linear-gradient(160deg, #061422, #030810);
+  background: linear-gradient(160deg, #061422, #030810);
   flex-shrink: 0;
+  overflow: hidden;
+  display: flex;
+  align-items: center;
+  justify-content: center;
 }
 
 .lobby-player-info {
@@ -5568,6 +5572,62 @@ body.dc-fullpage {
   .lobby-actionbar { gap: 8px; }
 }
 
+/* ── Game Picture Image ── */
+.home-logo-img {
+  width: 300px;
+  max-width: min(80vw, 300px);
+  border-radius: 22px;
+  display: block;
+  filter: drop-shadow(0 0 48px rgba(33, 133, 213, 0.5)) drop-shadow(0 8px 24px rgba(0,0,0,0.7));
+  margin-bottom: 8px;
+}
+
+.creator-brand-img {
+  width: 110px;
+  height: 110px;
+  object-fit: contain;
+  border-radius: 18px;
+  display: block;
+  filter: drop-shadow(0 0 14px rgba(33, 133, 213, 0.35));
+}
+
+.dc-brand-img {
+  width: 40px;
+  height: 40px;
+  object-fit: contain;
+  border-radius: 9px;
+  display: block;
+}
+
+.auth-brand-img {
+  width: 130px;
+  height: 130px;
+  object-fit: contain;
+  border-radius: 22px;
+  display: block;
+  margin: 0 auto 6px;
+  filter: drop-shadow(0 0 26px rgba(33, 133, 213, 0.5)) drop-shadow(0 4px 12px rgba(0,0,0,0.6));
+}
+
+.nav-icon {
+  width: 44px;
+  height: 44px;
+  object-fit: contain;
+  display: block;
+  mix-blend-mode: screen;
+}
+
+.tile-img {
+  position: relative;
+  z-index: 1;
+  width: 110px;
+  height: 110px;
+  object-fit: contain;
+  display: block;
+  align-self: center;
+  mix-blend-mode: screen;
+}
+
 /* ── Duel Mode Buttons ── */
 button.home-tile {
   appearance: none;
@@ -5723,13 +5783,16 @@ button.creator-nav-item {
   display: flex;
   flex-direction: column;
   align-items: center;
-  justify-content: center;
-  gap: 14px;
+  justify-content: flex-end;
+  gap: 8px;
   padding: 24px 16px 20px;
+  min-height: 200px;
   appearance: none;
-  background:
-    radial-gradient(circle at 50% 30%, color-mix(in srgb, var(--opt-accent) 38%, transparent), transparent 6rem),
-    linear-gradient(180deg, color-mix(in srgb, var(--opt-deep) 70%, #100d09), #080807 100%);
+  background-image: none;
+  background-color: #080807;
+  background-size: cover;
+  background-position: center 30%;
+  background-repeat: no-repeat;
   border: 1px solid rgba(218, 165, 83, 0.4);
   border-radius: 3px;
   color: #f0dcad;
@@ -5741,6 +5804,7 @@ button.creator-nav-item {
     inset 0 0 36px rgba(0,0,0,0.6),
     0 6px 20px rgba(0,0,0,0.4);
   transition: filter 0.18s, transform 0.18s, border-color 0.18s;
+  overflow: hidden;
 }
 
 .duel-dialog-option::before {
@@ -5774,11 +5838,17 @@ button.creator-nav-item {
 .duel-dialog-option[data-duel-mode="online"] {
   --opt-accent: #2185d5;
   --opt-deep: #092b4a;
+  background-image:
+    linear-gradient(to top, rgba(9, 43, 74, 0.92) 0%, rgba(9, 43, 74, 0.6) 45%, rgba(0,0,0,0.1) 100%),
+    url("assets/icons/online_icon.png");
 }
 
 .duel-dialog-option[data-duel-mode="ai"] {
   --opt-accent: #a64cee;
   --opt-deep: #2b1042;
+  background-image:
+    linear-gradient(to top, rgba(43, 16, 66, 0.92) 0%, rgba(43, 16, 66, 0.6) 45%, rgba(0,0,0,0.1) 100%),
+    url("assets/icons/vs_ai_icon.png");
 }
 
 .duel-dialog-opt-icon {
@@ -5791,18 +5861,23 @@ button.creator-nav-item {
 }
 
 .duel-dialog-opt-label {
+  position: relative;
+  z-index: 1;
   font-size: 1rem;
   font-weight: 700;
   letter-spacing: 0.1em;
   text-transform: uppercase;
   color: #f1c978;
-  text-shadow: 0 1px 0 #000;
+  text-shadow: 0 2px 6px rgba(0,0,0,0.9), 0 1px 0 #000;
 }
 
 .duel-dialog-opt-sub {
+  position: relative;
+  z-index: 1;
   font-size: 0.7rem;
   letter-spacing: 0.04em;
-  color: rgba(222, 200, 150, 0.5);
+  color: rgba(255, 235, 190, 0.85);
   text-align: center;
   line-height: 1.3;
+  text-shadow: 0 1px 4px rgba(0,0,0,0.95);
 }

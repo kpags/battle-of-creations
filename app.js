@@ -3345,20 +3345,10 @@ if (lobbyEl) {
 
       <div class="duel-dialog-options">
         <button class="duel-dialog-option" type="button" data-duel-mode="online">
-          <span class="duel-dialog-opt-icon">
-            <svg width="44" height="44" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
-              <path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm-1 17.93c-3.94-.49-7-3.85-7-7.93s3.06-7.44 7-7.93v15.86zm2 0V4.07c3.94.49 7 3.85 7 7.93s-3.06 7.44-7 7.93z"/>
-            </svg>
-          </span>
           <span class="duel-dialog-opt-label">Online</span>
           <span class="duel-dialog-opt-sub">Battle real players in the lobby</span>
         </button>
         <button class="duel-dialog-option" type="button" data-duel-mode="ai">
-          <span class="duel-dialog-opt-icon">
-            <svg width="44" height="44" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
-              <path d="M12 2a2 2 0 0 1 2 2c0 .74-.4 1.39-1 1.73V7h1a7 7 0 0 1 7 7h1a1 1 0 0 1 1 1v3a1 1 0 0 1-1 1h-1v1a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-1H2a1 1 0 0 1-1-1v-3a1 1 0 0 1 1-1h1a7 7 0 0 1 7-7h1V5.73c-.6-.34-1-.99-1-1.73a2 2 0 0 1 2-2M7.5 13A2.5 2.5 0 0 0 5 15.5 2.5 2.5 0 0 0 7.5 18 2.5 2.5 0 0 0 10 15.5 2.5 2.5 0 0 0 7.5 13m9 0A2.5 2.5 0 0 0 14 15.5a2.5 2.5 0 0 0 2.5 2.5 2.5 2.5 0 0 0 2.5-2.5 2.5 2.5 0 0 0-2.5-2.5z"/>
-            </svg>
-          </span>
           <span class="duel-dialog-opt-label">Vs AI</span>
           <span class="duel-dialog-opt-sub">Train against the computer</span>
         </button>

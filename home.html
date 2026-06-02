@@ -9,6 +9,7 @@
       content="Battle of Creations home page with duel, card creator, deck, leaderboard, rewards, and logout actions."
     >
     <link rel="stylesheet" href="styles.css">
+    <link rel="icon" type="image/png" href="assets/game_picture.png">
   </head>
   <body>
     <main class="home" aria-label="Battle of Creations home">
@@ -24,7 +25,7 @@
         <header class="home-topbar" aria-label="Player status">
           <section class="player-card" aria-label="Current player">
             <div class="player-avatar" aria-hidden="true">
-              <span></span>
+              <img class="player-avatar-img" src="assets/icons/user_icon.png" alt="" aria-hidden="true">
             </div>
             <div class="player-copy">
               <strong data-player-username>Player</strong>
@@ -43,9 +44,7 @@
         </header>
 
         <section class="home-hero" aria-labelledby="home-title">
-          <div class="home-logo-mark" aria-hidden="true">
-            <span></span>
-          </div>
+          <img class="home-logo-img" src="assets/game_picture.png" alt="Battle of Creations" aria-hidden="true">
           <h1 id="home-title">
             <span>Battle</span>
             <small>of</small>
@@ -56,37 +55,37 @@
 
         <nav class="home-actions" aria-label="Game actions">
           <button class="home-tile tile-red" type="button" data-duel-now>
-            <span class="tile-art icon-duel" aria-hidden="true"><span></span></span>
+            <img class="tile-img" src="assets/icons/navigation/duel_now_icon.png" alt="" aria-hidden="true">
             <span class="tile-label">Duel Now</span>
             <span class="tile-gem" aria-hidden="true"></span>
           </button>
 
           <a class="home-tile tile-blue" href="cards.html">
-            <span class="tile-art icon-card-creator" aria-hidden="true"><span></span></span>
+            <img class="tile-img" src="assets/icons/navigation/card_creator_icon.png" alt="" aria-hidden="true">
             <span class="tile-label">Card Creator</span>
             <span class="tile-gem" aria-hidden="true"></span>
           </a>
 
           <a class="home-tile tile-green" href="decks.html">
-            <span class="tile-art icon-deck" aria-hidden="true"><span></span></span>
+            <img class="tile-img" src="assets/icons/navigation/deck_constructor_icon.png" alt="" aria-hidden="true">
             <span class="tile-label">Deck Constructor</span>
             <span class="tile-gem" aria-hidden="true"></span>
           </a>
 
           <a class="home-tile tile-purple" href="home.html#leaderboards">
-            <span class="tile-art icon-trophy" aria-hidden="true"><span></span></span>
+            <img class="tile-img" src="assets/icons/navigation/leaderboard_icon.png" alt="" aria-hidden="true">
             <span class="tile-label">Leaderboards</span>
             <span class="tile-gem" aria-hidden="true"></span>
           </a>
 
           <a class="home-tile tile-gold" href="home.html#rewards">
-            <span class="tile-art icon-chest" aria-hidden="true"><span></span></span>
+            <img class="tile-img" src="assets/icons/navigation/rewards_icon.png" alt="" aria-hidden="true">
             <span class="tile-label">Rewards</span>
             <span class="tile-gem" aria-hidden="true"></span>
           </a>
 
           <a class="home-tile tile-iron" href="index.html" data-logout>
-            <span class="tile-art icon-door" aria-hidden="true"><span></span></span>
+            <img class="tile-img" src="assets/icons/navigation/logout_icon.png" alt="" aria-hidden="true">
             <span class="tile-label">Logout</span>
             <span class="tile-gem" aria-hidden="true"></span>
           </a>
