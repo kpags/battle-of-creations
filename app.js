@@ -3412,7 +3412,11 @@ if (lobbyEl) {
     if (!option) return;
     closeDialog();
     if (option.dataset.duelMode === "online") {
-      window.location.href = "lobby.html";
+      if (window.location.pathname.endsWith("lobby.html")) {
+        closeDialog();
+      } else {
+        window.location.href = "lobby.html";
+      }
     } else {
       alert("Vs AI — coming soon!");
     }
