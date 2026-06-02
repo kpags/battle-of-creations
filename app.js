@@ -3494,6 +3494,9 @@ if (lobbyEl) {
     aiMonster:       [null, null, null, null, null],
     aiSpellTrap:     [null, null, null, null, null],
     selectedHandIdx: null,
+    pendingAction: null,
+    tributesPending: 0,
+    tributesSelected: [],
     hasNormalSummoned: false,
     hasDrawn: false,
     monstersAttackedThisTurn: new Set()
@@ -3573,12 +3576,15 @@ if (lobbyEl) {
 
   function renderSlot(slotEl, card, faceDown) {
     slotEl.innerHTML = "";
+    slotEl.classList.remove("is-defense");
     if (!card) {
       slotEl.classList.remove("is-filled");
       return;
     }
     slotEl.classList.add("is-filled");
-    if (faceDown) {
+    const actualFaceDown = faceDown || card._faceDown;
+    if (card._position === "defense") slotEl.classList.add("is-defense");
+    if (actualFaceDown) {
       const back = document.createElement("div");
       back.className = "bf-slot-face bf-card-back";
       slotEl.appendChild(back);
@@ -3587,6 +3593,10 @@ if (lobbyEl) {
     const isMonster = cardTypeName(card) === "monster";
     const face = document.createElement("div");
     face.className = "bf-slot-face";
+    if (card._justFlipped) {
+      face.classList.add("bf-flip-reveal");
+      delete card._justFlipped;
+    }
 
     const artEl = makeArtEl(card, "bf-slot-face-art");
     face.appendChild(artEl);
@@ -3665,6 +3675,7 @@ if (lobbyEl) {
       el.addEventListener("mouseenter", () => showCardInfo(card));
       el.addEventListener("mouseleave", () => { if (state.selectedHandIdx !== i) clearCardInfo(); });
       el.addEventListener("click",       () => selectHandCard(i));
+      el.addEventListener("contextmenu", (e) => { e.preventDefault(); openHandCardMenu(i, el); });
       playerHandEl.appendChild(el);
     });
   }
@@ -3692,6 +3703,10 @@ if (lobbyEl) {
     state.phase = phase;
     renderPhases();
     updateDrawPrompt();
+    if (endTurnBtn) {
+      const canEnd = state.activePlayer === "player" && phase !== "draw";
+      endTurnBtn.disabled = !canEnd;
+    }
   }
 
   // Show / hide the "▼ DRAW" prompt beside the player deck
@@ -3720,18 +3735,17 @@ if (lobbyEl) {
 
   // ── Select a hand card ──────────────────────────────────
   function selectHandCard(idx) {
-    if (state.activePlayer !== "player") return;
-    if (state.phase !== "main1" && state.phase !== "main2") {
-      showStatus("You can only play cards during Main Phase 1 or 2");
-      return;
-    }
     const wasSelected = state.selectedHandIdx === idx;
     state.selectedHandIdx = wasSelected ? null : idx;
+    state.pendingAction = null;
+    state.tributesPending = 0;
+    state.tributesSelected = [];
+    clearSlotHighlights();
     renderPlayerHand();
     if (state.selectedHandIdx !== null) {
-      highlightAvailableSlots(state.playerHand[idx]);
+      showCardInfo(state.playerHand[idx]);
     } else {
-      clearSlotHighlights();
+      clearCardInfo();
     }
   }
 
@@ -3741,15 +3755,14 @@ if (lobbyEl) {
     if (state.phase !== "main1" && state.phase !== "main2") {
       showStatus("You can only play cards during a Main Phase"); return;
     }
-    if (state.selectedHandIdx === null) {
-      showStatus("Select a card from your hand first"); return;
-    }
+    if (state.selectedHandIdx === null || !state.pendingAction) return;
     if (fieldArr[slotIdx] !== null) {
       showStatus("That slot is already occupied"); return;
     }
 
     const card = state.playerHand[state.selectedHandIdx];
     const t = cardTypeName(card);
+    const action = state.pendingAction;
 
     if (isMonsterZone && t !== "monster") {
       showStatus("Monsters only go in the Monster Zone"); return;
@@ -3757,14 +3770,18 @@ if (lobbyEl) {
     if (!isMonsterZone && t === "monster") {
       showStatus("Spell / Trap cards go in the Spell / Trap Zone"); return;
     }
-    if (isMonsterZone && state.hasNormalSummoned) {
-      showStatus("You can only Normal Summon once per turn"); return;
+    if (isMonsterZone && (action === "normal-summon" || action === "set-monster") && state.hasNormalSummoned) {
+      showStatus("You can only Normal Summon or Set once per turn"); return;
     }
 
-    fieldArr[slotIdx] = { ...card };
+    const faceDown = action === "set-monster" || action === "set-spell" || action === "set-trap";
+    const position = (action === "set-monster" || action === "special-summon-def") ? "defense" : "attack";
+
+    fieldArr[slotIdx] = { ...card, _faceDown: faceDown, _position: position };
     state.playerHand.splice(state.selectedHandIdx, 1);
     state.selectedHandIdx = null;
-    if (isMonsterZone) state.hasNormalSummoned = true;
+    state.pendingAction = null;
+    if (isMonsterZone && (action === "normal-summon" || action === "set-monster")) state.hasNormalSummoned = true;
 
     clearSlotHighlights();
     renderField();
@@ -3776,6 +3793,21 @@ if (lobbyEl) {
     // Player monster slots
     Array.from(playerMonZone.querySelectorAll(".bf-slot")).forEach((slot, i) => {
       slot.addEventListener("click", () => {
+        // Tribute selection mode
+        if (state.tributesPending > 0 && state.playerMonster[i] !== null &&
+            !state.tributesSelected.includes(i)) {
+          state.tributesSelected.push(i);
+          slot.classList.remove("is-tribute");
+          slot.classList.add("is-tribute-selected");
+          if (state.tributesSelected.length >= state.tributesPending) {
+            completeTribute();
+          } else {
+            const remaining = state.tributesPending - state.tributesSelected.length;
+            showStatus(`Select ${remaining} more monster${remaining > 1 ? "s" : ""} to tribute`);
+            highlightTributeTargets();
+          }
+          return;
+        }
         if (state.phase === "battle" && state.activePlayer === "player") {
           attackWithMonster(i);
         } else {
@@ -3796,6 +3828,7 @@ if (lobbyEl) {
   function attackWithMonster(slotIdx) {
     const attacker = state.playerMonster[slotIdx];
     if (!attacker) { showStatus("No monster in that slot"); return; }
+    if (attacker._position === "defense") { showStatus("Monsters in defense position cannot attack"); return; }
     if (state.monstersAttackedThisTurn.has(slotIdx)) { showStatus("That monster already attacked this turn"); return; }
 
     const atkSlotEl = playerMonZone.querySelectorAll(".bf-slot")[slotIdx];
@@ -3806,32 +3839,60 @@ if (lobbyEl) {
     const targetIdx = state.aiMonster.findIndex((m) => m !== null);
 
     if (targetIdx >= 0) {
-      // Attack a monster
-      const defender  = state.aiMonster[targetIdx];
-      const def       = cardDef(defender);
+      const defender = state.aiMonster[targetIdx];
 
-      if (atk > def) {
-        const dmg = atk - def;
-        state.aiLP = Math.max(0, state.aiLP - dmg);
-        state.aiGY.push(state.aiMonster[targetIdx]);
-        state.aiMonster[targetIdx] = null;
-        updateLP();
-        damageFlash($(".bf-ai-lp-bar"));
-        showStatus(`${cardNameStr(attacker)} destroys ${cardNameStr(defender)}! AI takes ${dmg} damage!`);
-      } else if (atk < def) {
-        const dmg = def - atk;
-        state.playerLP = Math.max(0, state.playerLP - dmg);
-        state.playerGY.push(state.playerMonster[slotIdx]);
-        state.playerMonster[slotIdx] = null;
-        updateLP();
-        damageFlash($(".bf-player-lp-bar"));
-        showStatus(`${cardNameStr(attacker)} is destroyed! You take ${dmg} damage!`);
+      // Flip face-down card — reveal it in defense position first
+      if (defender._faceDown) {
+        defender._faceDown = false;
+        if (!defender._position) defender._position = "defense";
+        defender._justFlipped = true;
+        renderField();
+      }
+
+      const inDefense = defender._position === "defense";
+
+      if (inDefense) {
+        // ATK vs DEF
+        const def = cardDef(defender);
+        if (atk > def) {
+          state.aiGY.push(state.aiMonster[targetIdx]);
+          state.aiMonster[targetIdx] = null;
+          showStatus(`${cardNameStr(attacker)} destroys ${cardNameStr(defender)}! (No damage in defense mode)`);
+        } else if (atk === def) {
+          showStatus("Attack equals defense — no cards destroyed, no damage!");
+        } else {
+          const dmg = def - atk;
+          state.playerLP = Math.max(0, state.playerLP - dmg);
+          updateLP();
+          damageFlash($(".bf-player-lp-bar"));
+          showStatus(`${cardNameStr(attacker)} can't break through! You take ${dmg} damage!`);
+        }
       } else {
-        state.aiGY.push(state.aiMonster[targetIdx]);
-        state.playerGY.push(state.playerMonster[slotIdx]);
-        state.aiMonster[targetIdx] = null;
-        state.playerMonster[slotIdx] = null;
-        showStatus("Both monsters are destroyed!");
+        // ATK vs ATK
+        const defAtk = cardAtk(defender);
+        if (atk > defAtk) {
+          const dmg = atk - defAtk;
+          state.aiLP = Math.max(0, state.aiLP - dmg);
+          state.aiGY.push(state.aiMonster[targetIdx]);
+          state.aiMonster[targetIdx] = null;
+          updateLP();
+          damageFlash($(".bf-ai-lp-bar"));
+          showStatus(`${cardNameStr(attacker)} destroys ${cardNameStr(defender)}! AI takes ${dmg} damage!`);
+        } else if (atk < defAtk) {
+          const dmg = defAtk - atk;
+          state.playerLP = Math.max(0, state.playerLP - dmg);
+          state.playerGY.push(state.playerMonster[slotIdx]);
+          state.playerMonster[slotIdx] = null;
+          updateLP();
+          damageFlash($(".bf-player-lp-bar"));
+          showStatus(`${cardNameStr(attacker)} is destroyed! You take ${dmg} damage!`);
+        } else {
+          state.aiGY.push(state.aiMonster[targetIdx]);
+          state.playerGY.push(state.playerMonster[slotIdx]);
+          state.aiMonster[targetIdx] = null;
+          state.playerMonster[slotIdx] = null;
+          showStatus("Both monsters are destroyed! No damage.");
+        }
       }
     } else {
       // Direct attack
@@ -3913,13 +3974,24 @@ if (lobbyEl) {
   // ── Slot highlights ─────────────────────────────
   function clearSlotHighlights() {
     document.querySelectorAll(".bf-slot.is-target").forEach(el => el.classList.remove("is-target"));
+    document.querySelectorAll(".bf-slot.is-tribute").forEach(el => el.classList.remove("is-tribute"));
+    document.querySelectorAll(".bf-slot.is-tribute-selected").forEach(el => el.classList.remove("is-tribute-selected"));
   }
 
-  function highlightAvailableSlots(card) {
+  function highlightTributeTargets() {
+    document.querySelectorAll(".bf-slot.is-tribute").forEach(el => el.classList.remove("is-tribute"));
+    Array.from(playerMonZone.querySelectorAll(".bf-slot")).forEach((slot, i) => {
+      if (state.playerMonster[i] !== null && !state.tributesSelected.includes(i)) {
+        slot.classList.add("is-tribute");
+      }
+    });
+  }
+
+  function highlightAvailableSlots(card, zone) {
     clearSlotHighlights();
     if (!card) return;
-    const t = cardTypeName(card);
-    if (t === "monster") {
+    const useMonster = zone === "monster" || (!zone && cardTypeName(card) === "monster");
+    if (useMonster) {
       Array.from(playerMonZone.querySelectorAll(".bf-slot")).forEach((slot, i) => {
         if (state.playerMonster[i] === null) slot.classList.add("is-target");
       });
@@ -3928,6 +4000,158 @@ if (lobbyEl) {
         if (state.playerSpellTrap[i] === null) slot.classList.add("is-target");
       });
     }
+  }
+
+  // ── Hand card context menu ───────────────────────────────
+  let _handMenuEl = null;
+
+  function closeHandMenu() {
+    if (_handMenuEl) { _handMenuEl.remove(); _handMenuEl = null; }
+  }
+
+  function openHandCardMenu(idx, anchorEl) {
+    closeHandMenu();
+    if (state.activePlayer !== "player") return;
+    if (state.phase === "draw") return;
+    const card = state.playerHand[idx];
+    const t = cardTypeName(card);
+    const inMain = state.phase === "main1" || state.phase === "main2";
+
+    const menu = document.createElement("div");
+    menu.className = "bf-hand-menu";
+    _handMenuEl = menu;
+
+    function item(label, action, cls) {
+      const btn = document.createElement("button");
+      btn.className = "bf-hand-menu-item" + (cls ? " " + cls : "");
+      btn.textContent = label;
+      btn.addEventListener("click", () => { closeHandMenu(); doCardAction(action, idx); });
+      return btn;
+    }
+    function sep() { const d = document.createElement("div"); d.className = "bf-hand-menu-sep"; return d; }
+    function lbl(text) { const d = document.createElement("div"); d.className = "bf-hand-menu-label"; d.textContent = text; return d; }
+
+    if (inMain) {
+      if (t === "monster") {
+        const alreadySummoned = state.hasNormalSummoned;
+        const lv = Number(card.level) || 1;
+        const tributesNeeded = lv >= 8 ? 2 : lv >= 5 ? 1 : 0;
+        const fieldCount = state.playerMonster.filter(m => m !== null).length;
+        const canTribute = fieldCount >= tributesNeeded;
+        menu.appendChild(lbl("Monster Actions"));
+        const nsLabel = tributesNeeded > 0
+          ? `Normal Summon (${tributesNeeded} tribute${tributesNeeded > 1 ? "s" : ""})`
+          : "Normal Summon";
+        const nsBtn = item(nsLabel, "normal-summon");
+        const setBtn = item("Set Face-Down", "set-monster");
+        if (alreadySummoned || !canTribute) {
+          nsBtn.disabled = true; nsBtn.style.opacity = "0.35"; nsBtn.style.cursor = "not-allowed";
+        }
+        if (alreadySummoned) {
+          setBtn.disabled = true; setBtn.style.opacity = "0.35"; setBtn.style.cursor = "not-allowed";
+        }
+        menu.appendChild(nsBtn);
+        menu.appendChild(item("Special Summon (ATK)", "special-summon-atk"));
+        menu.appendChild(item("Special Summon (DEF)", "special-summon-def"));
+        menu.appendChild(setBtn);
+        menu.appendChild(sep());
+      } else if (t === "spell") {
+        menu.appendChild(lbl("Spell Actions"));
+        menu.appendChild(item("Activate", "activate-spell"));
+        menu.appendChild(item("Set Face-Down", "set-spell"));
+        menu.appendChild(sep());
+      } else if (t === "trap") {
+        menu.appendChild(lbl("Trap Actions"));
+        menu.appendChild(item("Set Face-Down", "set-trap"));
+        menu.appendChild(sep());
+      }
+    }
+    menu.appendChild(item("Send to Graveyard", "to-gy", "is-danger"));
+    menu.appendChild(item("Return to Top of Deck", "to-deck-top"));
+
+    document.body.appendChild(menu);
+    const rect = anchorEl.getBoundingClientRect();
+    const mw = menu.offsetWidth;
+    let left = rect.left + rect.width / 2 - mw / 2;
+    left = Math.max(4, Math.min(left, window.innerWidth - mw - 4));
+    menu.style.left = left + "px";
+    menu.style.top  = rect.top + "px";
+    menu.style.transform = "translateY(calc(-100% - 6px))";
+    requestAnimationFrame(() => {
+      document.addEventListener("click", closeHandMenu, { once: true });
+    });
+  }
+
+  function doCardAction(action, handIdx) {
+    if (state.activePlayer !== "player") return;
+    const card = state.playerHand[handIdx];
+    if (!card) return;
+    const inMain = state.phase === "main1" || state.phase === "main2";
+
+    if (action === "to-gy") {
+      state.playerGY.push(state.playerHand.splice(handIdx, 1)[0]);
+      state.selectedHandIdx = null; state.pendingAction = null;
+      clearSlotHighlights(); clearCardInfo();
+      renderPlayerHand(); updateCounts();
+      return;
+    }
+    if (action === "to-deck-top") {
+      state.playerDeck.unshift(state.playerHand.splice(handIdx, 1)[0]);
+      state.selectedHandIdx = null; state.pendingAction = null;
+      clearSlotHighlights(); clearCardInfo();
+      renderPlayerHand(); updateCounts();
+      return;
+    }
+    if (!inMain) { showStatus("You can only play cards during a Main Phase"); return; }
+
+    // Tribute check for normal summon
+    if (action === "normal-summon") {
+      const lv = Number(card.level) || 1;
+      const required = lv >= 8 ? 2 : lv >= 5 ? 1 : 0;
+      if (required > 0) {
+        const available = state.playerMonster.filter(m => m !== null).length;
+        if (available < required) {
+          const noun = required === 1 ? "monster" : "monsters";
+          showStatus(`${required} ${noun} on the field required to tribute summon — none available`);
+          return;
+        }
+        // Enter tribute selection mode
+        state.selectedHandIdx = handIdx;
+        state.pendingAction = "normal-summon";
+        state.tributesPending = required;
+        state.tributesSelected = [];
+        highlightTributeTargets();
+        showStatus(`Select ${required} monster${required > 1 ? "s" : ""} on your field to tribute`);
+        renderPlayerHand();
+        return;
+      }
+    }
+
+    state.selectedHandIdx = handIdx;
+    state.pendingAction = action;
+    const zone = (action === "normal-summon" || action === "special-summon-atk" ||
+                  action === "special-summon-def" || action === "set-monster")
+                 ? "monster" : "spelltrap";
+    highlightAvailableSlots(card, zone);
+    renderPlayerHand();
+  }
+
+  function completeTribute() {
+    // Remove tributed monsters, send to GY
+    state.tributesSelected.forEach(i => {
+      state.playerGY.push(state.playerMonster[i]);
+      state.playerMonster[i] = null;
+    });
+    state.tributesSelected = [];
+    state.tributesPending = 0;
+    clearSlotHighlights();
+    renderField();
+    updateCounts();
+    // Now highlight empty monster slots for placement
+    const card = state.playerHand[state.selectedHandIdx];
+    highlightAvailableSlots(card, "monster");
+    showStatus("Tribute complete — choose an empty slot to summon");
+    renderPlayerHand();
   }
 
   // ── Phase button clicks ─────────────────────────────────
@@ -3940,6 +4164,12 @@ if (lobbyEl) {
       const target  = phaseOrder.indexOf(btn.dataset.bfPhase);
 
       if (target <= current) return; // can't go backwards
+
+      // First turn of the game: no Battle Phase
+      if (btn.dataset.bfPhase === "battle" && state.turn === 1) {
+        showStatus("No Battle Phase on the first turn of the game");
+        return;
+      }
 
       // Handle draw phase manually if user clicks Draw Phase
       if (btn.dataset.bfPhase === "draw") return;
@@ -3979,6 +4209,11 @@ if (lobbyEl) {
   // ── Player ends turn ────────────────────────────────────
   function endPlayerTurn() {
     state.activePlayer = "ai";
+    state.tributesPending = 0;
+    state.tributesSelected = [];
+    closeHandMenu();
+    clearSlotHighlights();
+    clearCardInfo();
     if (endTurnBtn) endTurnBtn.disabled = true;
     setPhase("end");
     showStatus("Your turn ended — AI is thinking…", 1500);
@@ -4030,6 +4265,7 @@ if (lobbyEl) {
     for (let i = 0; i < 5; i++) {
       const attacker = state.aiMonster[i];
       if (!attacker) continue;
+      if (attacker._position === "defense") continue; // defense monsters don't attack
 
       const atk = cardAtk(attacker);
       const atkSlotEl = aiMonZone.querySelectorAll(".bf-slot")[i];
@@ -4041,31 +4277,60 @@ if (lobbyEl) {
 
       if (targetIdx >= 0) {
         const defender = state.playerMonster[targetIdx];
-        const def = cardDef(defender);
-        const defSlotEl = playerMonZone.querySelectorAll(".bf-slot")[targetIdx];
 
-        if (atk > def) {
-          const dmg = atk - def;
-          state.playerLP = Math.max(0, state.playerLP - dmg);
-          state.playerGY.push(state.playerMonster[targetIdx]);
-          state.playerMonster[targetIdx] = null;
-          updateLP();
-          damageFlash($(".bf-player-lp-bar"));
-          showStatus(`${cardNameStr(attacker)} destroys ${cardNameStr(defender)}! You take ${dmg} damage!`);
-        } else if (atk < def) {
-          const dmg = def - atk;
-          state.aiLP = Math.max(0, state.aiLP - dmg);
-          state.aiGY.push(state.aiMonster[i]);
-          state.aiMonster[i] = null;
-          updateLP();
-          damageFlash($(".bf-ai-lp-bar"));
-          showStatus(`${cardNameStr(defender)} destroys ${cardNameStr(attacker)}! AI takes ${dmg} damage!`);
+        // Flip face-down player monster to defense position
+        if (defender._faceDown) {
+          defender._faceDown = false;
+          if (!defender._position) defender._position = "defense";
+          defender._justFlipped = true;
+          renderField();
+          await sleep(600);
+        }
+
+        const inDefense = defender._position === "defense";
+
+        if (inDefense) {
+          // ATK vs DEF
+          const def = cardDef(defender);
+          if (atk > def) {
+            state.playerGY.push(state.playerMonster[targetIdx]);
+            state.playerMonster[targetIdx] = null;
+            showStatus(`${cardNameStr(attacker)} destroys ${cardNameStr(defender)}! (No damage in defense mode)`);
+          } else if (atk === def) {
+            showStatus("Attack equals defense — no cards destroyed, no damage!");
+          } else {
+            const dmg = def - atk;
+            state.aiLP = Math.max(0, state.aiLP - dmg);
+            updateLP();
+            damageFlash($(".bf-ai-lp-bar"));
+            showStatus(`${cardNameStr(attacker)} can't break through! AI takes ${dmg} damage!`);
+          }
         } else {
-          state.aiGY.push(state.aiMonster[i]);
-          state.playerGY.push(state.playerMonster[targetIdx]);
-          state.aiMonster[i] = null;
-          state.playerMonster[targetIdx] = null;
-          showStatus("Both monsters are destroyed!");
+          // ATK vs ATK
+          const defAtk = cardAtk(defender);
+          if (atk > defAtk) {
+            const dmg = atk - defAtk;
+            state.playerLP = Math.max(0, state.playerLP - dmg);
+            state.playerGY.push(state.playerMonster[targetIdx]);
+            state.playerMonster[targetIdx] = null;
+            updateLP();
+            damageFlash($(".bf-player-lp-bar"));
+            showStatus(`${cardNameStr(attacker)} destroys ${cardNameStr(defender)}! You take ${dmg} damage!`);
+          } else if (atk < defAtk) {
+            const dmg = defAtk - atk;
+            state.aiLP = Math.max(0, state.aiLP - dmg);
+            state.aiGY.push(state.aiMonster[i]);
+            state.aiMonster[i] = null;
+            updateLP();
+            damageFlash($(".bf-ai-lp-bar"));
+            showStatus(`${cardNameStr(defender)} destroys ${cardNameStr(attacker)}! AI takes ${dmg} damage!`);
+          } else {
+            state.aiGY.push(state.aiMonster[i]);
+            state.playerGY.push(state.playerMonster[targetIdx]);
+            state.aiMonster[i] = null;
+            state.playerMonster[targetIdx] = null;
+            showStatus("Both monsters are destroyed! No damage.");
+          }
         }
 
         renderField();
@@ -4096,8 +4361,7 @@ if (lobbyEl) {
     state.monstersAttackedThisTurn.clear();
 
     // Give control back — player clicks the deck prompt to draw
-    setPhase("draw");   // updateDrawPrompt() fires inside setPhase
-    if (endTurnBtn) endTurnBtn.disabled = false;
+    setPhase("draw");   // updateDrawPrompt() fires inside setPhase; endTurnBtn disabled here too
   }
 
   // ── End game ─────────────────────────────────────────────
