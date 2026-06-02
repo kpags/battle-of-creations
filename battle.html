@@ -1,0 +1,196 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Battle of Creations | Duel</title>
+  <link rel="stylesheet" href="styles.css">
+  <link rel="icon" type="image/png" href="assets/game_picture.png">
+</head>
+<body data-battle>
+
+  <div class="bf-page">
+
+    <!-- ── Top bar: turn + end turn ── -->
+    <header class="bf-topbar">
+      <div class="bf-turn-badge">
+        <span class="bf-turn-word">Turn</span>
+        <span class="bf-turn-num" data-bf-turn>1</span>
+      </div>
+      <button class="bf-end-turn-btn" data-bf-end-turn type="button">End Turn</button>
+    </header>
+
+    <!-- ── Board ── -->
+    <div class="bf-board">
+
+      <!-- Left: Card info pane -->
+      <div class="bf-info-col">
+        <div class="bf-card-info" data-card-info aria-live="polite">
+          <div class="bf-ci-art" data-ci-art></div>
+          <div class="bf-ci-body">
+            <div class="bf-ci-name" data-ci-name></div>
+            <div class="bf-ci-type" data-ci-type></div>
+            <div class="bf-ci-stats" data-ci-stats hidden>
+              <span class="bf-ci-stat"><span class="bf-ci-stat-label">ATK</span><span data-ci-atk></span></span>
+              <span class="bf-ci-stat"><span class="bf-ci-stat-label">DEF</span><span data-ci-def></span></span>
+            </div>
+            <div class="bf-ci-desc" data-ci-desc></div>
+          </div>
+          <div class="bf-ci-empty" data-ci-empty>Hover a card<br>to preview</div>
+        </div>
+      </div>
+
+      <!-- Center: field -->
+      <div class="bf-field">
+
+        <!-- AI hand (hidden face-down) -->
+        <div class="bf-hand bf-ai-hand" data-ai-hand aria-label="AI hand (hidden)"></div>
+
+        <!-- AI spell/trap zone (outermost — nearest AI hand) -->
+        <div class="bf-zone-header">
+          <span class="bf-zone-label bf-label-ai">Spell / Trap Zone</span>
+        </div>
+        <div class="bf-zone bf-spelltrap-zone" data-ai-spelltrap>
+          <div class="bf-slot bf-spelltrap-slot" data-slot-idx="0" aria-label="AI spell/trap slot 1" role="button" tabindex="-1"></div>
+          <div class="bf-slot bf-spelltrap-slot" data-slot-idx="1" aria-label="AI spell/trap slot 2" role="button" tabindex="-1"></div>
+          <div class="bf-slot bf-spelltrap-slot" data-slot-idx="2" aria-label="AI spell/trap slot 3" role="button" tabindex="-1"></div>
+          <div class="bf-slot bf-spelltrap-slot" data-slot-idx="3" aria-label="AI spell/trap slot 4" role="button" tabindex="-1"></div>
+          <div class="bf-slot bf-spelltrap-slot" data-slot-idx="4" aria-label="AI spell/trap slot 5" role="button" tabindex="-1"></div>
+        </div>
+
+        <!-- AI monster zone (inner — faces player monster zone across center) -->
+        <div class="bf-zone bf-monster-zone" data-ai-monster>
+          <div class="bf-slot bf-monster-slot" data-slot-idx="0" aria-label="AI monster slot 1" role="button" tabindex="-1"></div>
+          <div class="bf-slot bf-monster-slot" data-slot-idx="1" aria-label="AI monster slot 2" role="button" tabindex="-1"></div>
+          <div class="bf-slot bf-monster-slot" data-slot-idx="2" aria-label="AI monster slot 3" role="button" tabindex="-1"></div>
+          <div class="bf-slot bf-monster-slot" data-slot-idx="3" aria-label="AI monster slot 4" role="button" tabindex="-1"></div>
+          <div class="bf-slot bf-monster-slot" data-slot-idx="4" aria-label="AI monster slot 5" role="button" tabindex="-1"></div>
+        </div>
+
+        <!-- Field center divider + phase bar -->
+        <div class="bf-center-divider">
+          <span class="bf-divider-line" aria-hidden="true"></span>
+          <nav class="bf-phases" role="group" aria-label="Game phases">
+            <button class="bf-phase is-active" data-bf-phase="draw" aria-current="step">
+              <span class="bf-phase-full">Draw</span>
+              <span class="bf-phase-short">DP</span>
+            </button>
+            <button class="bf-phase" data-bf-phase="main1">
+              <span class="bf-phase-full">Main 1</span>
+              <span class="bf-phase-short">M1</span>
+            </button>
+            <button class="bf-phase" data-bf-phase="battle">
+              <span class="bf-phase-full">Battle</span>
+              <span class="bf-phase-short">BP</span>
+            </button>
+            <button class="bf-phase" data-bf-phase="main2">
+              <span class="bf-phase-full">Main 2</span>
+              <span class="bf-phase-short">M2</span>
+            </button>
+            <button class="bf-phase" data-bf-phase="end">
+              <span class="bf-phase-full">End</span>
+              <span class="bf-phase-short">EP</span>
+            </button>
+          </nav>
+          <span class="bf-divider-line" aria-hidden="true"></span>
+        </div>
+
+        <!-- Player monster zone (inner — faces AI monster zone across center) -->
+        <div class="bf-zone bf-monster-zone" data-player-monster>
+          <div class="bf-slot bf-monster-slot" data-slot-idx="0" aria-label="Your monster slot 1" role="button" tabindex="0"></div>
+          <div class="bf-slot bf-monster-slot" data-slot-idx="1" aria-label="Your monster slot 2" role="button" tabindex="0"></div>
+          <div class="bf-slot bf-monster-slot" data-slot-idx="2" aria-label="Your monster slot 3" role="button" tabindex="0"></div>
+          <div class="bf-slot bf-monster-slot" data-slot-idx="3" aria-label="Your monster slot 4" role="button" tabindex="0"></div>
+          <div class="bf-slot bf-monster-slot" data-slot-idx="4" aria-label="Your monster slot 5" role="button" tabindex="0"></div>
+        </div>
+
+        <!-- Player spell/trap zone (outermost — nearest player hand) -->
+        <div class="bf-zone bf-spelltrap-zone" data-player-spelltrap>
+          <div class="bf-slot bf-spelltrap-slot" data-slot-idx="0" aria-label="Your spell/trap slot 1" role="button" tabindex="0"></div>
+          <div class="bf-slot bf-spelltrap-slot" data-slot-idx="1" aria-label="Your spell/trap slot 2" role="button" tabindex="0"></div>
+          <div class="bf-slot bf-spelltrap-slot" data-slot-idx="2" aria-label="Your spell/trap slot 3" role="button" tabindex="0"></div>
+          <div class="bf-slot bf-spelltrap-slot" data-slot-idx="3" aria-label="Your spell/trap slot 4" role="button" tabindex="0"></div>
+          <div class="bf-slot bf-spelltrap-slot" data-slot-idx="4" aria-label="Your spell/trap slot 5" role="button" tabindex="0"></div>
+        </div>
+
+        <!-- Spell/Trap zone label (player side) -->
+        <div class="bf-zone-header bf-zone-header-bottom">
+          <span class="bf-zone-label">Spell / Trap Zone</span>
+        </div>
+
+        <!-- Player hand -->
+        <div class="bf-hand bf-player-hand" data-player-hand aria-label="Your hand"></div>
+
+      </div><!-- .bf-field -->
+
+      <!-- Right: Deck + Graveyard -->
+      <div class="bf-deck-col">
+
+        <!-- AI area: GY above Deck -->
+        <div class="bf-deck-area">
+          <div class="bf-gy-slot" data-ai-gy title="AI Graveyard" role="button" tabindex="-1" aria-label="AI Graveyard">
+            <span class="bf-slot-label">GY</span>
+            <span class="bf-gy-count" data-ai-gy-count>0</span>
+          </div>
+          <div class="bf-deck-pile" data-ai-deck title="AI Deck" role="button" tabindex="-1" aria-label="AI Deck">
+            <span class="bf-slot-label">DECK</span>
+            <span class="bf-deck-count" data-ai-deck-count>—</span>
+          </div>
+        </div>
+
+        <div class="bf-deck-spacer"></div>
+
+        <!-- Player area: GY above Deck -->
+        <div class="bf-deck-area">
+          <div class="bf-gy-slot" data-player-gy title="Your Graveyard" role="button" tabindex="0" aria-label="Your Graveyard">
+            <span class="bf-slot-label">GY</span>
+            <span class="bf-gy-count" data-player-gy-count>0</span>
+          </div>
+          <button class="bf-draw-prompt" data-draw-prompt hidden type="button" aria-label="Draw a card from your deck">▼ DRAW</button>
+          <div class="bf-deck-pile" data-player-deck title="Your Deck — click to draw" role="button" tabindex="0" aria-label="Your Deck">
+            <span class="bf-slot-label">DECK</span>
+            <span class="bf-deck-count" data-player-deck-count>—</span>
+          </div>
+        </div>
+
+      </div><!-- .bf-deck-col -->
+
+      <!-- Right: LP health bars -->
+      <div class="bf-lp-col">
+        <!-- AI LP bar (top) -->
+        <div class="bf-lp-bar bf-ai-lp-bar">
+          <div class="bf-lp-bar-label">
+            <span class="bf-lp-who">AI</span>
+          </div>
+          <div class="bf-lp-bar-track">
+            <div class="bf-lp-bar-fill" data-ai-lp-fill style="height:100%"></div>
+            <span class="bf-lp-pts" data-ai-lp>8000</span>
+          </div>
+        </div>
+        <!-- Player LP bar (bottom) -->
+        <div class="bf-lp-bar bf-player-lp-bar">
+          <div class="bf-lp-bar-label">
+            <div class="bf-lp-avatar">
+              <img class="player-avatar-img" src="assets/icons/user_icon.png" alt="" aria-hidden="true">
+            </div>
+            <span class="bf-lp-who" data-bf-username>You</span>
+          </div>
+          <div class="bf-lp-bar-track">
+            <div class="bf-lp-bar-fill" data-player-lp-fill style="height:100%"></div>
+            <span class="bf-lp-pts" data-player-lp>8000</span>
+          </div>
+        </div>
+      </div>
+
+    </div><!-- .bf-board -->
+
+    <!-- Status / toast messages -->
+    <div class="bf-status" data-bf-status hidden role="status" aria-live="polite">
+      <span data-bf-status-msg></span>
+    </div>
+
+  </div><!-- .bf-page -->
+
+  <script src="app.js"></script>
+</body>
+</html>

@@ -1,6 +1,6 @@
 const passwordButtons = Array.from(document.querySelectorAll("[data-toggle-password]"));
 const forms = Array.from(document.querySelectorAll("[data-form]"));
-const isProtectedPage = Boolean(document.querySelector(".home, [data-card-library], [data-card-creator], [data-lobby], [data-deck-library], [data-deck-creator]"));
+const isProtectedPage = Boolean(document.querySelector(".home, [data-card-library], [data-card-creator], [data-lobby], [data-deck-library], [data-deck-creator], [data-battle]"));
 const isGuestPage = Boolean(document.querySelector("[data-form='login'], [data-form='register'], [data-form='reset']"));
 let currentUser = null;
 const CARD_TYPE_LABELS = {
@@ -3408,7 +3408,762 @@ if (lobbyEl) {
         window.location.href = "lobby.html";
       }
     } else {
-      alert("Vs AI — coming soon!");
+      window.location.href = "battle.html";
     }
   });
 })();
+
+// ============================================================
+// BATTLEFIELD  (battle.html)
+// ============================================================
+(function initBattlefield() {
+  if (!document.querySelector("[data-battle]")) return;
+
+  const store = window.BattleOfCreationsStore;
+
+  // ── Helpers ──────────────────────────────────────────────
+  function shuffle(arr) {
+    const a = [...arr];
+    for (let i = a.length - 1; i > 0; i--) {
+      const j = Math.floor(Math.random() * (i + 1));
+      [a[i], a[j]] = [a[j], a[i]];
+    }
+    return a;
+  }
+
+  function sleep(ms) {
+    return new Promise((resolve) => setTimeout(resolve, ms));
+  }
+
+  function cardTypeName(card) {
+    const t = String(card.cardType || "monster").toLowerCase();
+    return ["monster", "spell", "trap"].includes(t) ? t : "monster";
+  }
+
+  function cardAtk(card) { return Number(card.attackPoints  ?? card.attack  ?? 0); }
+  function cardDef(card) { return Number(card.defensePoints ?? card.defense ?? 0); }
+  function cardNameStr(card) { return String(card.cardName || "Unnamed"); }
+
+  function artStyle(card) {
+    // position fallback — still used for background-type variants
+    const t = cardTypeName(card);
+    if (t === "spell") return "background:linear-gradient(135deg,#0c3318,#081a0a);";
+    if (t === "trap")  return "background:linear-gradient(135deg,#2d1040,#0f0516);";
+    return "background:linear-gradient(135deg,#3d1205,#1a0704);";
+  }
+
+  // Build an art element — uses <img> when the card has an uploaded image,
+  // falls back to a type-tinted div otherwise.
+  function makeArtEl(card, className) {
+    const wrap = document.createElement("div");
+    wrap.className = className;
+
+    if (card.uploadedImage) {
+      const img = document.createElement("img");
+      img.src   = card.uploadedImage;
+      img.alt   = "";
+      img.className = "bf-art-img";
+      // imagePosition is stored as { x, y } — artX/artY are not a field
+      const pos = card.imagePosition || {};
+      const x   = Number(pos.x) || 50;
+      const y   = Number(pos.y) || 50;
+      img.style.objectPosition = `${x}% ${y}%`;
+      wrap.appendChild(img);
+    } else {
+      wrap.style.cssText = artStyle(card);
+    }
+
+    return wrap;
+  }
+
+  // ── Game state ───────────────────────────────────────────
+  const state = {
+    turn: 1,
+    activePlayer: "player",   // "player" | "ai" | "none"
+    phase: "draw",            // draw | main1 | battle | main2 | end
+    playerLP: 8000,
+    aiLP: 8000,
+    playerHand: [],
+    aiHand: [],
+    playerDeck: [],
+    aiDeck: [],
+    playerGY: [],
+    aiGY: [],
+    playerMonster:   [null, null, null, null, null],
+    playerSpellTrap: [null, null, null, null, null],
+    aiMonster:       [null, null, null, null, null],
+    aiSpellTrap:     [null, null, null, null, null],
+    selectedHandIdx: null,
+    hasNormalSummoned: false,
+    hasDrawn: false,
+    monstersAttackedThisTurn: new Set()
+  };
+
+  // ── DOM references ────────────────────────────────────────
+  const $ = (sel) => document.querySelector(sel);
+  const turnEl          = $("[data-bf-turn]");
+  const playerLpEl      = $("[data-player-lp]");
+  const aiLpEl          = $("[data-ai-lp]");
+  const playerLpFill    = $("[data-player-lp-fill]");
+  const aiLpFill        = $("[data-ai-lp-fill]");
+  const playerHandEl    = $("[data-player-hand]");
+  const aiHandEl        = $("[data-ai-hand]");
+  const playerDeckCount = $("[data-player-deck-count]");
+  const aiDeckCount     = $("[data-ai-deck-count]");
+  const playerGYCount   = $("[data-player-gy-count]");
+  const aiGYCount       = $("[data-ai-gy-count]");
+  const playerGYSlot    = $("[data-player-gy]");
+  const aiGYSlot        = $("[data-ai-gy]");
+  const playerMonZone   = $("[data-player-monster]");
+  const playerSTZone    = $("[data-player-spelltrap]");
+  const aiMonZone       = $("[data-ai-monster]");
+  const aiSTZone        = $("[data-ai-spelltrap]");
+  const statusEl        = $("[data-bf-status]");
+  const statusMsgEl     = $("[data-bf-status-msg]");
+  const endTurnBtn      = $("[data-bf-end-turn]");
+  const usernameEl      = $("[data-bf-username]");
+  const phaseButtons    = Array.from(document.querySelectorAll("[data-bf-phase]"));
+  const drawPromptEl    = $("[data-draw-prompt]");
+  // Card info pane
+  const cardInfoEl      = $("[data-card-info]");
+  const ciArtEl         = $("[data-ci-art]");
+  const ciNameEl        = $("[data-ci-name]");
+  const ciTypeEl        = $("[data-ci-type]");
+  const ciStatsEl       = $("[data-ci-stats]");
+  const ciAtkEl         = $("[data-ci-atk]");
+  const ciDefEl         = $("[data-ci-def]");
+  const ciDescEl        = $("[data-ci-desc]");
+
+  let statusTimer = null;
+
+  function showStatus(msg, duration = 2800) {
+    if (!statusEl || !statusMsgEl) return;
+    statusMsgEl.textContent = msg;
+    statusEl.hidden = false;
+    clearTimeout(statusTimer);
+    statusTimer = setTimeout(() => { statusEl.hidden = true; }, duration);
+  }
+
+  // ── Render helpers ────────────────────────────────────────
+  const MAX_LP = 8000;
+
+  function updateLP() {
+    if (playerLpEl) playerLpEl.textContent = state.playerLP;
+    if (aiLpEl)     aiLpEl.textContent     = state.aiLP;
+    if (playerLpFill) {
+      const pct = Math.max(0, (state.playerLP / MAX_LP) * 100);
+      playerLpFill.style.height = pct + "%";
+      playerLpFill.classList.toggle("is-low", pct <= 25);
+    }
+    if (aiLpFill) {
+      const pct = Math.max(0, (state.aiLP / MAX_LP) * 100);
+      aiLpFill.style.height = pct + "%";
+      aiLpFill.classList.toggle("is-low", pct <= 25);
+    }
+  }
+
+  function updateCounts() {
+    if (playerDeckCount) playerDeckCount.textContent = state.playerDeck.length;
+    if (aiDeckCount)     aiDeckCount.textContent     = state.aiDeck.length;
+    if (playerGYCount)   playerGYCount.textContent   = state.playerGY.length;
+    if (aiGYCount)       aiGYCount.textContent       = state.aiGY.length;
+    if (playerGYSlot)    playerGYSlot.classList.toggle("has-cards", state.playerGY.length > 0);
+    if (aiGYSlot)        aiGYSlot.classList.toggle("has-cards",     state.aiGY.length > 0);
+  }
+
+  function renderSlot(slotEl, card, faceDown) {
+    slotEl.innerHTML = "";
+    if (!card) {
+      slotEl.classList.remove("is-filled");
+      return;
+    }
+    slotEl.classList.add("is-filled");
+    if (faceDown) {
+      const back = document.createElement("div");
+      back.className = "bf-slot-face bf-card-back";
+      slotEl.appendChild(back);
+      return;
+    }
+    const isMonster = cardTypeName(card) === "monster";
+    const face = document.createElement("div");
+    face.className = "bf-slot-face";
+
+    const artEl = makeArtEl(card, "bf-slot-face-art");
+    face.appendChild(artEl);
+
+    const nameEl = document.createElement("div");
+    nameEl.className = "bf-slot-face-name";
+    nameEl.textContent = cardNameStr(card);
+    face.appendChild(nameEl);
+
+    if (isMonster) {
+      const stats = document.createElement("div");
+      stats.className = "bf-slot-stats";
+      stats.innerHTML = `<span>${cardAtk(card)}</span><span>${cardDef(card)}</span>`;
+      face.appendChild(stats);
+    }
+
+    slotEl.appendChild(face);
+  }
+
+  function renderField() {
+    const pmSlots = Array.from(playerMonZone.querySelectorAll(".bf-slot"));
+    pmSlots.forEach((el, i) => {
+      renderSlot(el, state.playerMonster[i], false);
+      if (state.playerMonster[i]) {
+        el.addEventListener("mouseenter", () => showCardInfo(state.playerMonster[i]));
+        el.addEventListener("mouseleave", clearCardInfo);
+      }
+    });
+
+    const psSlots = Array.from(playerSTZone.querySelectorAll(".bf-slot"));
+    psSlots.forEach((el, i) => {
+      renderSlot(el, state.playerSpellTrap[i], false);
+      if (state.playerSpellTrap[i]) {
+        el.addEventListener("mouseenter", () => showCardInfo(state.playerSpellTrap[i]));
+        el.addEventListener("mouseleave", clearCardInfo);
+      }
+    });
+
+    const amSlots = Array.from(aiMonZone.querySelectorAll(".bf-slot"));
+    amSlots.forEach((el, i) => {
+      renderSlot(el, state.aiMonster[i], false);
+      if (state.aiMonster[i]) {
+        el.addEventListener("mouseenter", () => showCardInfo(state.aiMonster[i]));
+        el.addEventListener("mouseleave", clearCardInfo);
+      }
+    });
+
+    const asSlots = Array.from(aiSTZone.querySelectorAll(".bf-slot"));
+    asSlots.forEach((el, i) => renderSlot(el, state.aiSpellTrap[i], !!state.aiSpellTrap[i]));
+  }
+
+  function renderPlayerHand() {
+    if (!playerHandEl) return;
+    playerHandEl.innerHTML = "";
+    state.playerHand.forEach((card, i) => {
+      const el = document.createElement("div");
+      el.className = "bf-hand-card";
+      if (state.selectedHandIdx === i) el.classList.add("is-selected");
+
+      const t = cardTypeName(card);
+      const isMonster = t === "monster";
+      const typeLine  = t.charAt(0).toUpperCase() + t.slice(1);
+
+      const artEl = makeArtEl(card, "bf-hand-card-art");
+      el.appendChild(artEl);
+
+      const details = document.createElement("div");
+      details.className = "bf-hand-card-details";
+      details.innerHTML = `
+        <div class="bf-hand-card-name">${cardNameStr(card)}</div>
+        <div class="bf-hand-card-type is-${t}">${typeLine}</div>
+        ${isMonster ? `<div class="bf-hand-card-stats"><span>ATK ${cardAtk(card)}</span><span>DEF ${cardDef(card)}</span></div>` : ""}
+      `;
+      el.appendChild(details);
+
+      el.addEventListener("mouseenter", () => showCardInfo(card));
+      el.addEventListener("mouseleave", () => { if (state.selectedHandIdx !== i) clearCardInfo(); });
+      el.addEventListener("click",       () => selectHandCard(i));
+      playerHandEl.appendChild(el);
+    });
+  }
+
+  function renderAiHand() {
+    if (!aiHandEl) return;
+    aiHandEl.innerHTML = "";
+    state.aiHand.forEach(() => {
+      const el = document.createElement("div");
+      el.className = "bf-ai-hand-card bf-card-back";
+      aiHandEl.appendChild(el);
+    });
+  }
+
+  function renderPhases() {
+    phaseButtons.forEach((btn) => {
+      const active = btn.dataset.bfPhase === state.phase;
+      btn.classList.toggle("is-active", active);
+      btn.setAttribute("aria-current", active ? "step" : "false");
+    });
+    if (turnEl) turnEl.textContent = state.turn;
+  }
+
+  function setPhase(phase) {
+    state.phase = phase;
+    renderPhases();
+    updateDrawPrompt();
+  }
+
+  // Show / hide the "▼ DRAW" prompt beside the player deck
+  function updateDrawPrompt() {
+    if (!drawPromptEl) return;
+    const show = state.activePlayer === "player"
+              && state.phase === "draw"
+              && !state.hasDrawn;
+    drawPromptEl.hidden = !show;
+  }
+
+  // ── Draw ────────────────────────────────────────────────
+  function drawCard(player) {
+    if (player === "player") {
+      if (!state.playerDeck.length) { endGame("AI wins — you ran out of cards!"); return false; }
+      state.playerHand.push(state.playerDeck.shift());
+      renderPlayerHand();
+    } else {
+      if (!state.aiDeck.length) { endGame("You win — AI ran out of cards!"); return false; }
+      state.aiHand.push(state.aiDeck.shift());
+      renderAiHand();
+    }
+    updateCounts();
+    return true;
+  }
+
+  // ── Select a hand card ──────────────────────────────────
+  function selectHandCard(idx) {
+    if (state.activePlayer !== "player") return;
+    if (state.phase !== "main1" && state.phase !== "main2") {
+      showStatus("You can only play cards during Main Phase 1 or 2");
+      return;
+    }
+    const wasSelected = state.selectedHandIdx === idx;
+    state.selectedHandIdx = wasSelected ? null : idx;
+    renderPlayerHand();
+    if (state.selectedHandIdx !== null) {
+      highlightAvailableSlots(state.playerHand[idx]);
+    } else {
+      clearSlotHighlights();
+    }
+  }
+
+  // ── Play a card from hand to field ─────────────────────
+  function playToSlot(fieldArr, slotIdx, isMonsterZone) {
+    if (state.activePlayer !== "player") return;
+    if (state.phase !== "main1" && state.phase !== "main2") {
+      showStatus("You can only play cards during a Main Phase"); return;
+    }
+    if (state.selectedHandIdx === null) {
+      showStatus("Select a card from your hand first"); return;
+    }
+    if (fieldArr[slotIdx] !== null) {
+      showStatus("That slot is already occupied"); return;
+    }
+
+    const card = state.playerHand[state.selectedHandIdx];
+    const t = cardTypeName(card);
+
+    if (isMonsterZone && t !== "monster") {
+      showStatus("Monsters only go in the Monster Zone"); return;
+    }
+    if (!isMonsterZone && t === "monster") {
+      showStatus("Spell / Trap cards go in the Spell / Trap Zone"); return;
+    }
+    if (isMonsterZone && state.hasNormalSummoned) {
+      showStatus("You can only Normal Summon once per turn"); return;
+    }
+
+    fieldArr[slotIdx] = { ...card };
+    state.playerHand.splice(state.selectedHandIdx, 1);
+    state.selectedHandIdx = null;
+    if (isMonsterZone) state.hasNormalSummoned = true;
+
+    clearSlotHighlights();
+    renderField();
+    renderPlayerHand();
+  }
+
+  // ── Attach slot click listeners ─────────────────────────
+  function attachSlotListeners() {
+    // Player monster slots
+    Array.from(playerMonZone.querySelectorAll(".bf-slot")).forEach((slot, i) => {
+      slot.addEventListener("click", () => {
+        if (state.phase === "battle" && state.activePlayer === "player") {
+          attackWithMonster(i);
+        } else {
+          playToSlot(state.playerMonster, i, true);
+        }
+      });
+    });
+
+    // Player spell/trap slots
+    Array.from(playerSTZone.querySelectorAll(".bf-slot")).forEach((slot, i) => {
+      slot.addEventListener("click", () => {
+        playToSlot(state.playerSpellTrap, i, false);
+      });
+    });
+  }
+
+  // ── Player attacks ──────────────────────────────────────
+  function attackWithMonster(slotIdx) {
+    const attacker = state.playerMonster[slotIdx];
+    if (!attacker) { showStatus("No monster in that slot"); return; }
+    if (state.monstersAttackedThisTurn.has(slotIdx)) { showStatus("That monster already attacked this turn"); return; }
+
+    const atkSlotEl = playerMonZone.querySelectorAll(".bf-slot")[slotIdx];
+    atkSlotEl?.classList.add("is-attacking");
+    setTimeout(() => atkSlotEl?.classList.remove("is-attacking"), 960);
+
+    const atk = cardAtk(attacker);
+    const targetIdx = state.aiMonster.findIndex((m) => m !== null);
+
+    if (targetIdx >= 0) {
+      // Attack a monster
+      const defender  = state.aiMonster[targetIdx];
+      const def       = cardDef(defender);
+
+      if (atk > def) {
+        const dmg = atk - def;
+        state.aiLP = Math.max(0, state.aiLP - dmg);
+        state.aiGY.push(state.aiMonster[targetIdx]);
+        state.aiMonster[targetIdx] = null;
+        updateLP();
+        damageFlash($(".bf-ai-lp-bar"));
+        showStatus(`${cardNameStr(attacker)} destroys ${cardNameStr(defender)}! AI takes ${dmg} damage!`);
+      } else if (atk < def) {
+        const dmg = def - atk;
+        state.playerLP = Math.max(0, state.playerLP - dmg);
+        state.playerGY.push(state.playerMonster[slotIdx]);
+        state.playerMonster[slotIdx] = null;
+        updateLP();
+        damageFlash($(".bf-player-lp-bar"));
+        showStatus(`${cardNameStr(attacker)} is destroyed! You take ${dmg} damage!`);
+      } else {
+        state.aiGY.push(state.aiMonster[targetIdx]);
+        state.playerGY.push(state.playerMonster[slotIdx]);
+        state.aiMonster[targetIdx] = null;
+        state.playerMonster[slotIdx] = null;
+        showStatus("Both monsters are destroyed!");
+      }
+    } else {
+      // Direct attack
+      state.aiLP = Math.max(0, state.aiLP - atk);
+      updateLP();
+      damageFlash($(".bf-ai-lp-bar"));
+      showStatus(`${cardNameStr(attacker)} attacks directly for ${atk} damage!`);
+    }
+
+    state.monstersAttackedThisTurn.add(slotIdx);
+    renderField();
+    updateCounts();
+
+    if (state.aiLP <= 0) endGame("You Win! 🏆");
+  }
+
+  function damageFlash(el) {
+    if (!el) return;
+    // Support both old .bf-lp-card and new .bf-lp-bar
+    const target = el.closest(".bf-lp-bar") || el;
+    target.classList.remove("is-damaged");
+    void target.offsetWidth;
+    target.classList.add("is-damaged");
+    setTimeout(() => target.classList.remove("is-damaged"), 700);
+  }
+
+  // ── Card info pane ─────────────────────────────
+  function showCardInfo(card) {
+    if (!cardInfoEl) return;
+    cardInfoEl.classList.add("has-card");
+
+    // Art
+    if (ciArtEl) {
+      ciArtEl.innerHTML = "";
+      if (card.uploadedImage) {
+        const img = makeArtEl(card, "bf-ci-art-inner");
+        // makeArtEl wraps in a div; grab the img inside or append directly
+        ciArtEl.appendChild(img);
+        ciArtEl.style.background = "";
+      } else {
+        ciArtEl.innerHTML = "";
+        ciArtEl.style.cssText = artStyle(card);
+      }
+    }
+
+    const t = cardTypeName(card);
+    const isMonster = t === "monster";
+    if (ciNameEl) ciNameEl.textContent = cardNameStr(card);
+    if (ciTypeEl) {
+      const typeLabel = isMonster
+        ? `${card.monsterType || "Monster"} Monster`
+        : (t === "spell" ? "Spell Card" : "Trap Card");
+      ciTypeEl.textContent = typeLabel;
+      ciTypeEl.className = `bf-ci-type is-${t}`;
+    }
+    if (ciStatsEl) {
+      ciStatsEl.hidden = !isMonster;
+      if (isMonster && ciAtkEl && ciDefEl) {
+        ciAtkEl.textContent = cardAtk(card);
+        ciDefEl.textContent = cardDef(card);
+      }
+    }
+    if (ciDescEl) {
+      const desc = card.shortDescription || card.spellEffectDescription || card.trapEffectDescription
+                || card.effectDescription || card.effect || "";
+      ciDescEl.textContent = desc;
+    }
+  }
+
+  function clearCardInfo() {
+    if (!cardInfoEl) return;
+    cardInfoEl.classList.remove("has-card");
+    if (ciArtEl) { ciArtEl.innerHTML = ""; ciArtEl.style.cssText = ""; }
+    if (ciNameEl) ciNameEl.textContent = "";
+    if (ciTypeEl) ciTypeEl.textContent = "";
+    if (ciDescEl) ciDescEl.textContent = "";
+  }
+
+  // ── Slot highlights ─────────────────────────────
+  function clearSlotHighlights() {
+    document.querySelectorAll(".bf-slot.is-target").forEach(el => el.classList.remove("is-target"));
+  }
+
+  function highlightAvailableSlots(card) {
+    clearSlotHighlights();
+    if (!card) return;
+    const t = cardTypeName(card);
+    if (t === "monster") {
+      Array.from(playerMonZone.querySelectorAll(".bf-slot")).forEach((slot, i) => {
+        if (state.playerMonster[i] === null) slot.classList.add("is-target");
+      });
+    } else {
+      Array.from(playerSTZone.querySelectorAll(".bf-slot")).forEach((slot, i) => {
+        if (state.playerSpellTrap[i] === null) slot.classList.add("is-target");
+      });
+    }
+  }
+
+  // ── Phase button clicks ─────────────────────────────────
+  const phaseOrder = ["draw", "main1", "battle", "main2", "end"];
+
+  phaseButtons.forEach((btn) => {
+    btn.addEventListener("click", () => {
+      if (state.activePlayer !== "player") return;
+      const current = phaseOrder.indexOf(state.phase);
+      const target  = phaseOrder.indexOf(btn.dataset.bfPhase);
+
+      if (target <= current) return; // can't go backwards
+
+      // Handle draw phase manually if user clicks Draw Phase
+      if (btn.dataset.bfPhase === "draw") return;
+
+      setPhase(btn.dataset.bfPhase);
+
+      if (btn.dataset.bfPhase === "battle") {
+        state.monstersAttackedThisTurn.clear();
+        showStatus("Battle Phase — click your monsters to attack!", 3000);
+      }
+      if (btn.dataset.bfPhase === "main2") {
+        showStatus("Main Phase 2 — play more cards or end your turn", 2500);
+      }
+    });
+  });
+
+  // ── Draw via deck prompt or clicking the deck pile ──────
+  function doDraw() {
+    if (state.activePlayer !== "player") return;
+    if (state.phase !== "draw") return;
+    if (state.hasDrawn) { showStatus("Already drew this turn!"); return; }
+    if (!drawCard("player")) return;
+    state.hasDrawn = true;
+    updateDrawPrompt();
+    setTimeout(() => setPhase("main1"), 600);
+  }
+
+  drawPromptEl?.addEventListener("click", doDraw);
+  $("[data-player-deck]")?.addEventListener("click", doDraw);
+
+  // End Turn button
+  endTurnBtn?.addEventListener("click", () => {
+    if (state.activePlayer !== "player") return;
+    endPlayerTurn();
+  });
+
+  // ── Player ends turn ────────────────────────────────────
+  function endPlayerTurn() {
+    state.activePlayer = "ai";
+    if (endTurnBtn) endTurnBtn.disabled = true;
+    setPhase("end");
+    showStatus("Your turn ended — AI is thinking…", 1500);
+    setTimeout(doAiTurn, 1800);
+  }
+
+  // ── AI turn ──────────────────────────────────────────────
+  async function doAiTurn() {
+    // Draw Phase
+    setPhase("draw");
+    if (!drawCard("ai")) return;
+
+    await sleep(1300);
+
+    // Main Phase 1 — try to play one card
+    setPhase("main1");
+    let played = false;
+
+    if (state.aiHand.length) {
+      // Prefer monsters
+      const monIdx = state.aiHand.findIndex((c) => cardTypeName(c) === "monster");
+      const stIdx  = state.aiHand.findIndex((c) => cardTypeName(c) !== "monster");
+      const emptyMon = state.aiMonster.indexOf(null);
+      const emptyST  = state.aiSpellTrap.indexOf(null);
+
+      if (monIdx >= 0 && emptyMon >= 0) {
+        const [card] = state.aiHand.splice(monIdx, 1);
+        state.aiMonster[emptyMon] = { ...card };
+        showStatus(`AI summons ${cardNameStr(card)}!`, 1400);
+        played = true;
+      } else if (stIdx >= 0 && emptyST >= 0) {
+        const [card] = state.aiHand.splice(stIdx, 1);
+        state.aiSpellTrap[emptyST] = { ...card };
+        showStatus("AI sets a card face-down.", 1400);
+        played = true;
+      }
+
+      if (played) {
+        renderField();
+        renderAiHand();
+        await sleep(1600);
+      }
+    }
+
+    // Battle Phase
+    setPhase("battle");
+    await sleep(1200);
+
+    for (let i = 0; i < 5; i++) {
+      const attacker = state.aiMonster[i];
+      if (!attacker) continue;
+
+      const atk = cardAtk(attacker);
+      const atkSlotEl = aiMonZone.querySelectorAll(".bf-slot")[i];
+      atkSlotEl?.classList.add("is-attacking");
+      await sleep(960);
+      atkSlotEl?.classList.remove("is-attacking");
+
+      const targetIdx = state.playerMonster.findIndex((m) => m !== null);
+
+      if (targetIdx >= 0) {
+        const defender = state.playerMonster[targetIdx];
+        const def = cardDef(defender);
+        const defSlotEl = playerMonZone.querySelectorAll(".bf-slot")[targetIdx];
+
+        if (atk > def) {
+          const dmg = atk - def;
+          state.playerLP = Math.max(0, state.playerLP - dmg);
+          state.playerGY.push(state.playerMonster[targetIdx]);
+          state.playerMonster[targetIdx] = null;
+          updateLP();
+          damageFlash($(".bf-player-lp-bar"));
+          showStatus(`${cardNameStr(attacker)} destroys ${cardNameStr(defender)}! You take ${dmg} damage!`);
+        } else if (atk < def) {
+          const dmg = def - atk;
+          state.aiLP = Math.max(0, state.aiLP - dmg);
+          state.aiGY.push(state.aiMonster[i]);
+          state.aiMonster[i] = null;
+          updateLP();
+          damageFlash($(".bf-ai-lp-bar"));
+          showStatus(`${cardNameStr(defender)} destroys ${cardNameStr(attacker)}! AI takes ${dmg} damage!`);
+        } else {
+          state.aiGY.push(state.aiMonster[i]);
+          state.playerGY.push(state.playerMonster[targetIdx]);
+          state.aiMonster[i] = null;
+          state.playerMonster[targetIdx] = null;
+          showStatus("Both monsters are destroyed!");
+        }
+
+        renderField();
+        updateCounts();
+        await sleep(2000);
+      } else {
+        // Direct attack
+        if (atk > 0) {
+          state.playerLP = Math.max(0, state.playerLP - atk);
+          updateLP();
+          damageFlash($(".bf-player-lp-bar"));
+          showStatus(`${cardNameStr(attacker)} attacks directly for ${atk} damage!`);
+          await sleep(2000);
+        }
+      }
+
+      if (state.playerLP <= 0) { endGame("AI Wins! Better luck next time."); return; }
+    }
+
+    // End Phase → start player turn
+    setPhase("end");
+    await sleep(900);
+
+    state.turn++;
+    state.activePlayer = "player";
+    state.hasNormalSummoned = false;
+    state.hasDrawn = false;
+    state.monstersAttackedThisTurn.clear();
+
+    // Give control back — player clicks the deck prompt to draw
+    setPhase("draw");   // updateDrawPrompt() fires inside setPhase
+    if (endTurnBtn) endTurnBtn.disabled = false;
+  }
+
+  // ── End game ─────────────────────────────────────────────
+  function endGame(msg) {
+    state.activePlayer = "none";
+    state.phase = "end";
+    renderPhases();
+    if (endTurnBtn) endTurnBtn.disabled = true;
+    showStatus(`${msg} — Refresh to play again`, 60000);
+  }
+
+  // ── Initialise ───────────────────────────────────────────
+  async function init() {
+    const user = await store.refreshSession().catch(() => null);
+    if (!user) { window.location.href = "index.html"; return; }
+    if (usernameEl) usernameEl.textContent = user.username || "You";
+
+    showStatus("Loading deck…", 4000);
+
+    let decks, cards;
+    try {
+      [decks, cards] = await Promise.all([store.getMyDecks(), store.getMyCards()]);
+    } catch {
+      showStatus("Failed to load deck data — check the server.", 8000);
+      return;
+    }
+
+    if (!decks.length) {
+      showStatus("No decks found! Create a deck first, then come back.", 10000);
+      if (endTurnBtn) endTurnBtn.disabled = true;
+      return;
+    }
+
+    // Pick latest deck by savedAt / updatedAt
+    const sorted = [...decks].sort(
+      (a, b) => new Date(b.savedAt || b.updatedAt || 0) - new Date(a.savedAt || a.updatedAt || 0)
+    );
+    const deck = sorted[0];
+    const cardMap = Object.fromEntries(cards.map((c) => [c.id, c]));
+    const deckCards = (Array.isArray(deck.cardIds) ? deck.cardIds : [])
+      .map((id) => cardMap[id])
+      .filter(Boolean);
+
+    if (!deckCards.length) {
+      showStatus("Your latest deck has no valid cards!", 8000);
+      if (endTurnBtn) endTurnBtn.disabled = true;
+      return;
+    }
+
+    state.playerDeck = shuffle([...deckCards]);
+    state.aiDeck     = shuffle([...deckCards]);   // AI uses same card pool, different shuffle
+
+    // Opening hand (up to 5 cards)
+    const handSize = Math.min(5, Math.floor(state.playerDeck.length / 2));
+    for (let i = 0; i < handSize; i++) state.playerHand.push(state.playerDeck.shift());
+    for (let i = 0; i < handSize; i++) state.aiHand.push(state.aiDeck.shift());
+
+    updateLP();
+    updateCounts();
+    renderPlayerHand();
+    renderAiHand();
+    renderField();
+    attachSlotListeners();
+    setPhase("draw");
+  }
+
+  init();
+})();
+
