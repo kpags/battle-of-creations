@@ -3636,6 +3636,7 @@ if (lobbyEl) {
   const ATTACK_ARROW_MS = 1250;
   const CARD_TRAVEL_MS = 680;
   const CARD_SHATTER_MS = 640;
+  const BATTLE_QUAKE_MS = 560;
   const SPELL_EFFECT_SETTLE_MS = 260;
   const SPELL_LP_ANIM_MS = 980;
   const AI_FACE_DOWN_DEFENSE_GUESS = 1500;
@@ -3645,12 +3646,12 @@ if (lobbyEl) {
     if (playerLpEl) playerLpEl.textContent = state.playerLP;
     if (aiLpEl)     aiLpEl.textContent     = state.aiLP;
     if (playerLpFill) {
-      const pct = Math.max(0, (state.playerLP / MAX_LP) * 100);
+      const pct = Math.min(100, Math.max(0, (state.playerLP / MAX_LP) * 100));
       playerLpFill.style.height = pct + "%";
       playerLpFill.classList.toggle("is-low", pct <= 25);
     }
     if (aiLpFill) {
-      const pct = Math.max(0, (state.aiLP / MAX_LP) * 100);
+      const pct = Math.min(100, Math.max(0, (state.aiLP / MAX_LP) * 100));
       aiLpFill.style.height = pct + "%";
       aiLpFill.classList.toggle("is-low", pct <= 25);
     }
@@ -3839,6 +3840,8 @@ if (lobbyEl) {
       }
     }
 
+    if (slotEl && options.clearSlot !== false) renderSlot(slotEl, null, false);
+
     requestAnimationFrame(() => {
       shards.forEach((shard) => shard.classList.add("is-flying"));
     });
@@ -3856,7 +3859,14 @@ if (lobbyEl) {
     const slot = monsterSlots(owner)[slotIdx];
     const fromRect = readRect(slot);
     const faceDown = options.faceDown ?? Boolean(card._faceDown);
-    if (options.shatter) await animateCardShatter(card, slot, { faceDown });
+    if (options.shatter) {
+      field[slotIdx] = null;
+      await animateCardShatter(card, slot, { faceDown });
+      ownerGraveyard(owner).push(card);
+      renderField();
+      updateCounts();
+      return;
+    }
 
     ownerGraveyard(owner).push(card);
     field[slotIdx] = null;
@@ -3873,7 +3883,14 @@ if (lobbyEl) {
     const slot = slotsForZone(owner, zone)[slotIdx];
     const fromRect = readRect(slot);
     const faceDown = options.faceDown ?? Boolean(card._faceDown);
-    if (options.shatter) await animateCardShatter(card, slot, { faceDown });
+    if (options.shatter) {
+      field[slotIdx] = null;
+      await animateCardShatter(card, slot, { faceDown });
+      ownerGraveyard(owner).push(card);
+      renderField();
+      updateCounts();
+      return;
+    }
 
     ownerGraveyard(owner).push(card);
     field[slotIdx] = null;
@@ -4598,6 +4615,33 @@ if (lobbyEl) {
     return attackerOwner === "player" ? aiHandEl : playerHandEl;
   }
 
+  function pulseBattleClass(elements, className, duration = BATTLE_QUAKE_MS) {
+    const targets = elements.filter(Boolean);
+    if (!targets.length) return Promise.resolve();
+
+    targets.forEach((el) => el.classList.remove(className));
+    targets.forEach((el) => void el.offsetWidth);
+    targets.forEach((el) => el.classList.add(className));
+    setTimeout(() => {
+      targets.forEach((el) => el.classList.remove(className));
+    }, duration);
+    return sleep(duration);
+  }
+
+  function quakeMonsterSlot(owner, slotIdx) {
+    return pulseBattleClass([monsterSlots(owner)[slotIdx]], "is-card-quaking");
+  }
+
+  function ownerFieldElements(owner) {
+    return owner === "player"
+      ? [playerHandEl, playerSTZone, playerMonZone]
+      : [aiHandEl, aiSTZone, aiMonZone];
+  }
+
+  function quakeOwnerField(owner) {
+    return pulseBattleClass(ownerFieldElements(owner), "is-field-quaking");
+  }
+
   function showAttackArrow(fromSlot, toSlot) {
     if (!fromSlot || !toSlot) return Promise.resolve();
     const fromRect = fromSlot.getBoundingClientRect();
@@ -4694,7 +4738,7 @@ if (lobbyEl) {
   function adjustLife(owner, amount, options = {}) {
     if (amount === 0) return Promise.resolve();
     const before = owner === "player" ? state.playerLP : state.aiLP;
-    const after = Math.max(0, Math.min(MAX_LP, before - amount));
+    const after = Math.max(0, before - amount);
     if (owner === "player") state.playerLP = after;
     else state.aiLP = after;
     if (!state.defeatedOwner && amount > 0) {
@@ -4744,8 +4788,10 @@ if (lobbyEl) {
           showStatus("Attack equals defense - no cards destroyed, no damage!");
         } else {
           const damage = def - atk;
-          adjustLife(attackerOwner, damage);
+          const quakePromise = quakeMonsterSlot(attackerOwner, attackerIdx);
+          const lifePromise = adjustLife(attackerOwner, damage);
           showStatus(`${cardNameStr(attacker)} can't break through! ${controllerName(attackerOwner)} take${attackerOwner === "player" ? "" : "s"} ${damage} damage!`);
+          await Promise.all([quakePromise, lifePromise]);
         }
       } else {
         const defenderAtk = cardAtk(defender);
@@ -4768,8 +4814,10 @@ if (lobbyEl) {
         }
       }
     } else {
-      adjustLife(defenderOwner, atk);
+      const quakePromise = quakeOwnerField(defenderOwner);
+      const lifePromise = adjustLife(defenderOwner, atk);
       showStatus(`${cardNameStr(attacker)} attacks directly for ${atk} damage!`);
+      await Promise.all([quakePromise, lifePromise]);
     }
 
     if (attackerOwner === "player") state.monstersAttackedThisTurn.add(attackerIdx);

@@ -5908,7 +5908,7 @@ button.creator-nav-item {
 /* ── Turn bar (phases moved to center divider) ── */
 .bf-topbar {
   display: grid;
-  grid-template-columns: var(--bf-info-w) minmax(0, 1fr) var(--bf-deck-w) var(--bf-lp-w);
+  grid-template-columns: var(--bf-info-w) var(--bf-deck-w) minmax(0, 1fr) var(--bf-deck-w) var(--bf-lp-w);
   align-items: center;
   column-gap: var(--bf-board-gap);
   padding: 0 var(--bf-board-pad);
@@ -5921,7 +5921,7 @@ button.creator-nav-item {
 }
 
 .bf-turn-badge {
-  grid-column: 2;
+  grid-column: 3;
   display: flex;
   flex-direction: column;
   align-items: center;
@@ -5947,7 +5947,7 @@ button.creator-nav-item {
 }
 
 .bf-topbar-actions {
-  grid-column: 3 / 5;
+  grid-column: 4 / 6;
   justify-self: end;
   display: flex;
   align-items: center;
@@ -5993,26 +5993,28 @@ button.creator-nav-item {
 }
 
 .bf-end-turn-btn {
-  width: 62px;
-  height: 62px;
+  width: 76px;
+  height: 58px;
   flex: 0 0 auto;
-  padding: 6px;
+  display: grid;
+  place-items: center;
+  padding: 8px 10px;
   border: 1.5px solid rgba(255,76,76,0.64);
-  border-radius: 50%;
+  border-radius: 12px;
   background:
-    radial-gradient(circle at 50% 18%, rgba(255,118,92,0.28), transparent 46%),
-    linear-gradient(180deg, rgba(128,18,18,0.94), rgba(48,4,4,0.96));
+    radial-gradient(ellipse at 50% 12%, rgba(255,118,92,0.22), transparent 58%),
+    linear-gradient(180deg, rgba(90,20,24,0.96), rgba(38,8,12,0.98));
   color: #ffe3d4;
-  font-size: 0.55rem;
+  font-size: 0.72rem;
   font-weight: 900;
   text-transform: uppercase;
-  letter-spacing: 0.06em;
+  letter-spacing: 0.08em;
   cursor: pointer;
   font-family: inherit;
-  line-height: 1.05;
+  line-height: 1.02;
   text-align: center;
-  margin-bottom: 12px;
-  box-shadow: inset 0 0 16px rgba(255,70,70,0.18), 0 0 16px rgba(170,20,20,0.32);
+  white-space: normal;
+  box-shadow: inset 0 0 18px rgba(255,70,70,0.16), 0 0 18px rgba(170,20,20,0.3);
   transition: background 0.15s, transform 0.1s, filter 0.15s, border-color 0.15s;
 }
 
@@ -6574,24 +6576,26 @@ button.creator-nav-item {
     linear-gradient(180deg, #0d0803, #080502);
 }
 
-/* Inner diamond mark on empty monster slot */
-.bf-monster-slot::before {
+.bf-monster-slot::before,
+.bf-spelltrap-slot::before {
   position: absolute;
   inset: 0;
   content: "";
   pointer-events: none;
-  background:
-    linear-gradient(45deg,  transparent 39%, rgba(220,130,40,0.13) 40% 60%, transparent 61%),
-    linear-gradient(-45deg, transparent 39%, rgba(220,130,40,0.13) 40% 60%, transparent 61%);
+  opacity: 0.6;
+  background-color: transparent;
+  background-position: center;
+  background-repeat: no-repeat;
+  background-size: 100% 100%;
+}
+
+/* Empty slot art */
+.bf-monster-slot::before {
+  background-image: url("assets/monster_slot_picture.png");
 }
 
 .bf-monster-slot::after {
-  position: absolute;
-  inset: 7px;
-  content: "";
-  pointer-events: none;
-  border: 1px solid rgba(220,130,40,0.12);
-  border-radius: 2px;
+  content: none;
 }
 
 .bf-monster-slot.is-filled {
@@ -6613,22 +6617,11 @@ button.creator-nav-item {
 }
 
 .bf-spelltrap-slot::before {
-  position: absolute;
-  inset: 0;
-  content: "";
-  pointer-events: none;
-  background:
-    linear-gradient(45deg,  transparent 39%, rgba(33,133,213,0.13) 40% 60%, transparent 61%),
-    linear-gradient(-45deg, transparent 39%, rgba(33,133,213,0.13) 40% 60%, transparent 61%);
+  background-image: url("assets/spell_trap_slot_picture.png");
 }
 
 .bf-spelltrap-slot::after {
-  position: absolute;
-  inset: 7px;
-  content: "";
-  pointer-events: none;
-  border: 1px solid rgba(33,133,213,0.12);
-  border-radius: 2px;
+  content: none;
 }
 
 .bf-spelltrap-slot.is-filled {
@@ -6712,6 +6705,49 @@ button.creator-nav-item {
 
 .bf-slot.is-attacking {
   animation: bf-attack-flash 0.48s ease-in-out 2;
+}
+
+.bf-slot.is-card-quaking {
+  animation: bf-quake-glow 0.56s ease-out both;
+}
+
+.bf-slot.is-card-quaking .bf-slot-face,
+.bf-slot.is-card-quaking .bf-card-back {
+  animation: bf-card-quake 0.56s cubic-bezier(0.36, 0.07, 0.19, 0.97) both;
+  transform-origin: center;
+}
+
+.bf-hand.is-field-quaking,
+.bf-zone.is-field-quaking {
+  animation: bf-field-quake 0.56s cubic-bezier(0.36, 0.07, 0.19, 0.97) both;
+  transform-origin: center;
+  will-change: transform;
+}
+
+@keyframes bf-card-quake {
+  0%, 100% { transform: translate(0, 0) rotate(0deg); }
+  10%      { transform: translate(-5px, 2px) rotate(-2deg); }
+  22%      { transform: translate(6px, -2px) rotate(2deg); }
+  34%      { transform: translate(-6px, -1px) rotate(-1deg); }
+  48%      { transform: translate(5px, 2px) rotate(1deg); }
+  62%      { transform: translate(-3px, 1px) rotate(-1deg); }
+  78%      { transform: translate(2px, 0) rotate(1deg); }
+}
+
+@keyframes bf-field-quake {
+  0%, 100% { transform: translate(0, 0); filter: brightness(1); }
+  10%      { transform: translate(-7px, 2px); filter: brightness(1.2); }
+  22%      { transform: translate(8px, -2px); }
+  34%      { transform: translate(-8px, -1px); }
+  48%      { transform: translate(6px, 2px); filter: brightness(1.12); }
+  62%      { transform: translate(-4px, 1px); }
+  78%      { transform: translate(2px, 0); }
+}
+
+@keyframes bf-quake-glow {
+  0%, 100% { box-shadow: 0 0 12px rgba(255,80,30,0.26), inset 0 0 12px rgba(255,80,30,0.08); }
+  35%      { box-shadow: 0 0 34px rgba(255,36,28,0.78), inset 0 0 24px rgba(255,36,28,0.22); }
+  68%      { box-shadow: 0 0 24px rgba(255,132,44,0.56), inset 0 0 18px rgba(255,132,44,0.16); }
 }
 
 .bf-attack-arrow {
@@ -7080,34 +7116,66 @@ button.creator-nav-item {
   flex-shrink: 0;
   display: flex;
   flex-direction: column;
-  justify-content: space-between;
+  align-items: center;
+  justify-content: center;
+  gap: 0;
+}
+
+.bf-opponent-deck-col {
+  justify-content: flex-start;
+  padding-top: clamp(36px, 10vh, 88px);
+}
+
+.bf-player-deck-col {
+  justify-content: flex-end;
+  padding-bottom: clamp(32px, 8vh, 76px);
 }
 
 .bf-deck-area {
+  width: 100%;
   display: flex;
   flex-direction: column;
   align-items: center;
-  gap: 6px;
+  gap: 8px;
+}
+
+.bf-player-deck-col .bf-deck-area {
+  position: relative;
 }
 
 .bf-deck-spacer {
-  flex: 1;
+  flex: 0 0 clamp(12px, 2vh, 24px);
 }
 
 /* Graveyard slot */
 .bf-gy-slot {
+  position: relative;
+  box-sizing: border-box;
   width: 76px;
   height: 100px;
-  border-radius: 5px;
+  padding-top: 10px;
+  border-radius: 8px;
   border: 1.5px dashed rgba(180,140,60,0.28);
   background: rgba(5,3,1,0.5);
   display: flex;
   flex-direction: column;
   align-items: center;
-  justify-content: center;
-  gap: 2px;
+  justify-content: flex-start;
+  gap: 4px;
+  overflow: hidden;
   cursor: pointer;
   transition: border-color 0.15s, background 0.15s;
+}
+
+.bf-gy-slot::before {
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+  content: "";
+  pointer-events: none;
+  opacity: 0.6;
+  border-radius: inherit;
+  background: transparent url("assets/graveyard_slot_picture.png") center / 100% 100% no-repeat;
 }
 
 .bf-gy-slot.has-cards {
@@ -7126,6 +7194,12 @@ button.creator-nav-item {
   outline-offset: 3px;
 }
 
+.bf-gy-slot > .bf-slot-label,
+.bf-gy-count {
+  position: relative;
+  z-index: 1;
+}
+
 .bf-slot-label {
   font-size: 0.55rem;
   font-weight: 800;
@@ -7137,11 +7211,12 @@ button.creator-nav-item {
 }
 
 .bf-gy-count {
-  font-size: 0.9rem;
-  font-weight: 700;
-  color: rgba(200,180,130,0.7);
+  font-size: 1.18rem;
+  font-weight: 900;
+  color: #f1d99f;
   pointer-events: none;
   line-height: 1;
+  text-shadow: 0 0 10px rgba(201,168,76,0.36);
 }
 
 .bf-gy-dialog {
@@ -7315,17 +7390,45 @@ button.creator-nav-item {
 
 /* Deck pile */
 .bf-deck-pile {
+  box-sizing: border-box;
   width: 76px;
   height: 100px;
-  border-radius: 5px;
+  padding-top: 10px;
+  border: 1.5px solid rgba(201,168,76,0.36);
+  border-radius: 8px;
+  background:
+    radial-gradient(ellipse at 50% 14%, rgba(201,168,76,0.08), transparent 58%),
+    rgba(3,7,9,0.74);
   display: flex;
   flex-direction: column;
   align-items: center;
-  justify-content: center;
-  gap: 3px;
+  justify-content: flex-start;
+  gap: 6px;
   cursor: pointer;
   transition: transform 0.12s, filter 0.12s;
   position: relative;
+  overflow: hidden;
+  box-shadow: inset 0 0 18px rgba(201,168,76,0.04);
+}
+
+.bf-deck-pile::before {
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+  content: "";
+  pointer-events: none;
+  opacity: 0.6;
+  background: url("assets/icons/default_card_image_back.png") center / cover no-repeat;
+}
+
+.bf-deck-pile::after {
+  content: none;
+}
+
+.bf-deck-pile > .bf-slot-label,
+.bf-deck-count {
+  position: relative;
+  z-index: 1;
 }
 
 /* Draw prompt — appears beside player deck during Draw Phase */
@@ -7333,6 +7436,7 @@ button.creator-nav-item {
   appearance: none;
   font-family: inherit;
   width: 76px;
+  min-height: 34px;
   font-size: 0.62rem;
   font-weight: 900;
   text-transform: uppercase;
@@ -7340,13 +7444,21 @@ button.creator-nav-item {
   color: #f1d99f;
   background: rgba(5,3,1,0.85);
   border: 1.5px solid rgba(201,168,76,0.72);
-  border-radius: 5px;
+  border-radius: 6px;
   padding: 5px 4px;
   cursor: pointer;
   text-align: center;
   animation: bf-draw-pulse 1.3s ease-in-out infinite;
   transition: background 0.15s, border-color 0.15s;
 }
+
+.bf-player-deck-col .bf-draw-prompt {
+  position: absolute;
+  top: calc(100% + 8px);
+  left: 50%;
+  transform: translateX(-50%);
+}
+
 .bf-draw-prompt:hover {
   background: rgba(201,168,76,0.18);
   border-color: #f1d99f;
@@ -7358,11 +7470,12 @@ button.creator-nav-item {
 }
 
 .bf-deck-count {
-  font-size: 1.1rem;
-  font-weight: 700;
+  font-size: 1.18rem;
+  font-weight: 900;
   color: #f1d99f;
   pointer-events: none;
   line-height: 1;
+  text-shadow: 0 0 10px rgba(201,168,76,0.36);
 }
 
 /* ── Status toast ── */
@@ -7496,14 +7609,14 @@ button.creator-nav-item {
   }
 
   .bf-slot              { width: 62px; height: 82px; }
-  .bf-end-turn-btn      { width: 54px; height: 54px; font-size: 0.48rem; }
+  .bf-end-turn-btn      { width: 62px; height: 40px; padding: 5px 6px; font-size: 0.5rem; }
   .bf-zone              { gap: 8px; }
   .bf-hand-card         { width: 66px; }
   .bf-ai-hand-card      { width: 66px; }
   .bf-ai-hand           { min-height: 92px; }
   .bf-gy-slot,
-  .bf-deck-pile         { width: 62px; height: 82px; }
-  .bf-draw-prompt       { width: 62px; }
+  .bf-deck-pile         { width: 62px; height: 82px; padding-top: 9px; }
+  .bf-draw-prompt       { width: 62px; min-height: 28px; font-size: 0.5rem; }
   .bf-deck-col          { width: 74px; }
   .bf-info-col          { width: 290px; }
   .bf-battle-log        { height: 154px; }
@@ -7530,7 +7643,7 @@ button.creator-nav-item {
   .bf-surrender-btn { min-width: 88px; height: 28px; padding: 0 10px; font-size: 0.54rem; }
 
   .bf-slot              { width: 50px; height: 66px; }
-  .bf-end-turn-btn      { width: 46px; height: 46px; font-size: 0.42rem; padding: 4px; }
+  .bf-end-turn-btn      { width: 50px; height: 34px; font-size: 0.4rem; padding: 4px; }
   .bf-zone              { gap: 7px; }
 
   .bf-hand-card         { width: 58px; }
@@ -7543,7 +7656,8 @@ button.creator-nav-item {
 
   .bf-deck-col          { width: 64px; }
   .bf-gy-slot,
-  .bf-deck-pile         { width: 54px; height: 72px; }
+  .bf-deck-pile         { width: 50px; height: 66px; padding-top: 7px; }
+  .bf-draw-prompt       { width: 50px; min-height: 26px; font-size: 0.4rem; }
   .bf-info-col          { width: 230px; }
   .bf-battle-log        { height: 134px; }
   .bf-battle-log-entry  { font-size: 0.68rem; }
@@ -7569,7 +7683,7 @@ button.creator-nav-item {
   .bf-turn-word   { font-size: 0.44rem; }
   .bf-turn-num    { font-size: 1.2rem; }
   .bf-surrender-btn { min-width: 78px; height: 26px; padding: 0 8px; font-size: 0.48rem; letter-spacing: 0.05em; }
-  .bf-end-turn-btn { width: 38px; height: 38px; padding: 3px; font-size: 0.36rem; letter-spacing: 0.03em; }
+  .bf-end-turn-btn { width: 40px; height: 28px; padding: 3px; font-size: 0.32rem; letter-spacing: 0.03em; }
 
   .bf-slot              { width: 40px; height: 54px; }
   .bf-zone              { gap: 5px; }
@@ -7591,7 +7705,8 @@ button.creator-nav-item {
 
   .bf-deck-col          { width: 52px; }
   .bf-gy-slot,
-  .bf-deck-pile         { width: 44px; height: 58px; }
+  .bf-deck-pile         { width: 40px; height: 54px; padding-top: 5px; }
+  .bf-draw-prompt       { width: 40px; min-height: 24px; font-size: 0.32rem; }
   .bf-info-col          { width: 150px; gap: 5px; }
   .bf-battle-log        { height: 110px; }
   .bf-battle-log-head   { padding: 6px 7px 4px; font-size: 0.5rem; }
@@ -7621,7 +7736,7 @@ button.creator-nav-item {
   .bf-topbar      { height: 34px; padding: 0 var(--bf-board-pad); }
   .bf-turn-num    { font-size: 1rem; }
   .bf-surrender-btn { min-width: 66px; height: 24px; padding: 0 6px; font-size: 0.42rem; letter-spacing: 0.03em; }
-  .bf-end-turn-btn { width: 32px; height: 32px; padding: 2px; font-size: 0.3rem; letter-spacing: 0.02em; }
+  .bf-end-turn-btn { width: 34px; height: 24px; padding: 2px; font-size: 0.28rem; letter-spacing: 0.02em; }
 
   .bf-slot              { width: 34px; height: 46px; }
   /* Hide inner slot decorations at this size */
@@ -7670,7 +7785,8 @@ button.creator-nav-item {
 
   .bf-deck-col          { width: 44px; }
   .bf-gy-slot,
-  .bf-deck-pile         { width: 38px; height: 50px; }
+  .bf-deck-pile         { width: 34px; height: 46px; padding-top: 4px; }
+  .bf-draw-prompt       { width: 34px; min-height: 22px; font-size: 0.28rem; }
   .bf-info-col          { width: 118px; }
   .bf-battle-log        { height: 92px; }
   .bf-battle-log-head   { display: none; }
@@ -7699,14 +7815,15 @@ button.creator-nav-item {
 
   .bf-slot              { width: 28px; height: 38px; }
   .bf-surrender-btn     { min-width: 58px; height: 22px; padding: 0 5px; font-size: 0.36rem; letter-spacing: 0.02em; }
-  .bf-end-turn-btn      { width: 28px; height: 28px; font-size: 0.26rem; }
+  .bf-end-turn-btn      { width: 28px; height: 20px; font-size: 0.22rem; }
   .bf-zone              { gap: 3px; }
   .bf-hand-card         { width: 38px; }
   .bf-ai-hand-card      { width: 38px; }
   .bf-lp-col            { width: 42px; }
   .bf-deck-col          { width: 38px; }
   .bf-gy-slot,
-  .bf-deck-pile         { width: 32px; height: 42px; }
+  .bf-deck-pile         { width: 28px; height: 38px; padding-top: 3px; }
+  .bf-draw-prompt       { width: 28px; min-height: 20px; font-size: 0.22rem; }
   .bf-center-divider .bf-phase { min-width: 24px; padding: 2px; }
   .bf-center-divider .bf-phase-short { font-size: 0.48rem; }
 }

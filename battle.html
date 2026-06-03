@@ -49,6 +49,20 @@
         </div>
       </div>
 
+      <!-- Left: Opponent deck + graveyard -->
+      <div class="bf-deck-col bf-opponent-deck-col">
+        <div class="bf-deck-area">
+          <div class="bf-deck-pile" data-ai-deck title="AI Deck" role="button" tabindex="-1" aria-label="AI Deck">
+            <span class="bf-slot-label">DECK</span>
+            <span class="bf-deck-count" data-ai-deck-count>—</span>
+          </div>
+          <div class="bf-gy-slot" data-ai-gy title="AI Graveyard" role="button" tabindex="0" aria-label="AI Graveyard">
+            <span class="bf-slot-label">GY</span>
+            <span class="bf-gy-count" data-ai-gy-count>0</span>
+          </div>
+        </div>
+      </div>
+
       <!-- Center: field -->
       <div class="bf-field">
 
@@ -132,35 +146,19 @@
 
       </div><!-- .bf-field -->
 
-      <!-- Right: Deck + Graveyard -->
-      <div class="bf-deck-col">
-
-        <!-- AI area: GY above Deck -->
-        <div class="bf-deck-area">
-          <div class="bf-gy-slot" data-ai-gy title="AI Graveyard" role="button" tabindex="0" aria-label="AI Graveyard">
-            <span class="bf-slot-label">GY</span>
-            <span class="bf-gy-count" data-ai-gy-count>0</span>
-          </div>
-          <div class="bf-deck-pile" data-ai-deck title="AI Deck" role="button" tabindex="-1" aria-label="AI Deck">
-            <span class="bf-slot-label">DECK</span>
-            <span class="bf-deck-count" data-ai-deck-count>—</span>
-          </div>
-        </div>
-
-        <div class="bf-deck-spacer"></div>
-
-        <!-- Player area: GY above Deck -->
+      <!-- Right: Player controls + deck + graveyard -->
+      <div class="bf-deck-col bf-player-deck-col">
         <div class="bf-deck-area">
           <button class="bf-end-turn-btn" data-bf-end-turn type="button">End Turn</button>
           <div class="bf-gy-slot" data-player-gy title="Your Graveyard" role="button" tabindex="0" aria-label="Your Graveyard">
             <span class="bf-slot-label">GY</span>
             <span class="bf-gy-count" data-player-gy-count>0</span>
           </div>
-          <button class="bf-draw-prompt" data-draw-prompt hidden type="button" aria-label="Draw a card from your deck">▼ DRAW</button>
           <div class="bf-deck-pile" data-player-deck title="Your Deck — click to draw" role="button" tabindex="0" aria-label="Your Deck">
             <span class="bf-slot-label">DECK</span>
             <span class="bf-deck-count" data-player-deck-count>—</span>
           </div>
+          <button class="bf-draw-prompt" data-draw-prompt hidden type="button" aria-label="Draw a card from your deck">▼ DRAW</button>
         </div>
 
       </div><!-- .bf-deck-col -->
