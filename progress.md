@@ -46,3 +46,16 @@ Original prompt: Add a server side for user account so it is secured
 ## TODO
 
 - For production deployment, replace the demo reset-password endpoint with an email token flow and run behind HTTPS so cookies can also use the `Secure` flag.
+
+## 2026-06-03
+
+- Spell LP effects now use dedicated visuals: damage spells add a red side wash to the opponent field side, and healing spells spawn multiple green cross floats on the player's side.
+- Spell resolution now waits for spell effect animations or a short settle beat before moving the activated spell card to the graveyard.
+- Verified with a mocked Playwright HTTP harness that damage/heal spells change LP immediately, keep the spell out of the graveyard while the visual effect is active, then send it to the graveyard after the visual settles. Captured `screenshots/spell-damage-wash.png` and `screenshots/spell-heal-crosses.png` for visual review.
+- Activated spells now occupy a Spell/Trap Zone slot face-up before resolving, then leave that same field slot for the graveyard after the effect and effect animation finish.
+- AI battle targeting now treats face-down monsters as unknown estimates instead of reading their real combat stats before reveal.
+- Verified with mocked Playwright duel scenarios that hand and set spells stay on the field during effect visuals before going to the graveyard, AI attacks a face-down high-defense monster based on unknown estimates, and flip summon remains available after a normal summon in the same turn.
+- Destruction effects now shatter every affected field card, including spell/trap cards, before sending it to the graveyard; face-down destroyed cards keep the card-back shards during the animation.
+- Verified with a mocked Playwright duel that a destroy spell shows 9 face-down shards, keeps the AI graveyard count at 0 during the shatter, then removes the field card and updates the AI graveyard to 1 afterward. Captured `screenshots/effect-destroy-shatter.png` for visual review.
+- Added a top-right Surrender button to the AI duel page; clicking it marks the player defeated, sets player LP to 0, disables surrender, and opens the existing Defeat overlay with Rematch/Exit.
+- Verified with the stock web-game Playwright smoke client and a mocked Playwright duel that Surrender stays top-right at desktop and mobile widths, text fits, defeat/rematch state updates correctly, and captured `screenshots/surrender-button-topbar.png`, `screenshots/surrender-button-mobile.png`, and `screenshots/surrender-defeat-overlay.png`.

@@ -3502,6 +3502,8 @@ if (lobbyEl) {
     aiSpellTrap:     [null, null, null, null, null],
     selectedHandIdx: null,
     pendingAction: null,
+    pendingSpell: null,
+    resolvingSpell: false,
     selectedAttackIdx: null,
     tributesPending: 0,
     tributesSelected: [],
@@ -3509,6 +3511,7 @@ if (lobbyEl) {
     hasDrawn: false,
     monstersAttackedThisTurn: new Set(),
     monstersChangedModeThisTurn: new Set(),
+    aiBattleRestrictedUntilTurn: 0,
     resolvingBattle: false,
     defeatedOwner: null
   };
@@ -3543,6 +3546,7 @@ if (lobbyEl) {
   const statusEl        = $("[data-bf-status]");
   const statusMsgEl     = $("[data-bf-status-msg]");
   const endTurnBtn      = $("[data-bf-end-turn]");
+  const surrenderBtn    = $("[data-bf-surrender]");
   const usernameEl      = $("[data-bf-username]");
   const phaseButtons    = Array.from(document.querySelectorAll("[data-bf-phase]"));
   const drawPromptEl    = $("[data-draw-prompt]");
@@ -3573,6 +3577,15 @@ if (lobbyEl) {
       end: "End"
     };
     return labels[phase] || String(phase || "");
+  }
+
+  function isDuelEnded() {
+    return state.activePlayer === "none" || Boolean(state.defeatedOwner);
+  }
+
+  function updateSurrenderButton() {
+    if (!surrenderBtn) return;
+    surrenderBtn.disabled = !duelDeckCards.length || isDuelEnded();
   }
 
   function appendBattleLog(msg) {
@@ -3623,6 +3636,10 @@ if (lobbyEl) {
   const ATTACK_ARROW_MS = 1250;
   const CARD_TRAVEL_MS = 680;
   const CARD_SHATTER_MS = 640;
+  const SPELL_EFFECT_SETTLE_MS = 260;
+  const SPELL_LP_ANIM_MS = 980;
+  const AI_FACE_DOWN_DEFENSE_GUESS = 1500;
+  const AI_FACE_DOWN_VALUE_GUESS = 1200;
 
   function updateLP() {
     if (playerLpEl) playerLpEl.textContent = state.playerLP;
@@ -3666,6 +3683,38 @@ if (lobbyEl) {
 
   function ownerHandEl(owner) {
     return owner === "player" ? playerHandEl : aiHandEl;
+  }
+
+  function ownerSpellTrapField(owner) {
+    return owner === "player" ? state.playerSpellTrap : state.aiSpellTrap;
+  }
+
+  function spellTrapSlots(owner) {
+    return Array.from((owner === "player" ? playerSTZone : aiSTZone).querySelectorAll(".bf-slot"));
+  }
+
+  function fieldForZone(owner, zone) {
+    return zone === "monster" ? ownerMonsterField(owner) : ownerSpellTrapField(owner);
+  }
+
+  function slotsForZone(owner, zone) {
+    return zone === "monster" ? monsterSlots(owner) : spellTrapSlots(owner);
+  }
+
+  function spellParams(card) {
+    return card?.spellEffectParams && typeof card.spellEffectParams === "object"
+      ? card.spellEffectParams
+      : {};
+  }
+
+  function boundedNumber(value, fallback, min = 0, max = 99999) {
+    const number = Number.parseInt(value, 10);
+    if (Number.isNaN(number)) return fallback;
+    return Math.max(min, Math.min(max, number));
+  }
+
+  function isMonsterCard(card) {
+    return cardTypeName(card) === "monster";
   }
 
   function readRect(elOrRect) {
@@ -3744,7 +3793,7 @@ if (lobbyEl) {
   function animateDrawCard(owner, card) {
     const handEl = ownerHandEl(owner);
     const target = handEl?.lastElementChild || handEl;
-    animateCardMove(card, ownerDeckPile(owner), target, "is-draw", {
+    return animateCardMove(card, ownerDeckPile(owner), target, "is-draw", {
       faceDown: owner === "ai"
     });
   }
@@ -3755,24 +3804,25 @@ if (lobbyEl) {
       slot.classList.add("is-placing");
       setTimeout(() => slot.classList.remove("is-placing"), CARD_TRAVEL_MS + 120);
     }
-    animateCardMove(card, fromElOrRect, toElOrRect, "is-place", { faceDown });
+    return animateCardMove(card, fromElOrRect, toElOrRect, "is-place", { faceDown });
   }
 
   function animateCardToGraveyard(card, fromElOrRect, owner) {
     animateCardMove(card, fromElOrRect, ownerGraveyardSlot(owner), "is-to-graveyard");
   }
 
-  async function animateCardShatter(card, slotEl) {
+  async function animateCardShatter(card, slotEl, options = {}) {
     const rect = readRect(slotEl);
     if (!card || !rect) return;
 
     slotEl?.classList.add("is-breaking");
+    const faceDown = options.faceDown ?? Boolean(card._faceDown);
     const shards = [];
     const rows = 3;
     const cols = 3;
     for (let row = 0; row < rows; row++) {
       for (let col = 0; col < cols; col++) {
-        const shard = createCardGhost(card, rect, "bf-card-shard");
+        const shard = createCardGhost(card, rect, "bf-card-shard", faceDown);
         if (!shard) continue;
         const top = (row / rows) * 100;
         const right = ((cols - col - 1) / cols) * 100;
@@ -3805,13 +3855,84 @@ if (lobbyEl) {
 
     const slot = monsterSlots(owner)[slotIdx];
     const fromRect = readRect(slot);
-    if (options.shatter) await animateCardShatter(card, slot);
+    const faceDown = options.faceDown ?? Boolean(card._faceDown);
+    if (options.shatter) await animateCardShatter(card, slot, { faceDown });
 
     ownerGraveyard(owner).push(card);
     field[slotIdx] = null;
     renderField();
     updateCounts();
-    await animateCardMove(card, fromRect, ownerGraveyardSlot(owner), "is-to-graveyard");
+    await animateCardMove(card, fromRect, ownerGraveyardSlot(owner), "is-to-graveyard", { faceDown });
+  }
+
+  async function sendFieldCardToGraveyard(owner, zone, slotIdx, options = {}) {
+    const field = fieldForZone(owner, zone);
+    const card = field[slotIdx];
+    if (!card) return;
+
+    const slot = slotsForZone(owner, zone)[slotIdx];
+    const fromRect = readRect(slot);
+    const faceDown = options.faceDown ?? Boolean(card._faceDown);
+    if (options.shatter) await animateCardShatter(card, slot, { faceDown });
+
+    ownerGraveyard(owner).push(card);
+    field[slotIdx] = null;
+    renderField();
+    updateCounts();
+    await animateCardMove(card, fromRect, ownerGraveyardSlot(owner), "is-to-graveyard", {
+      faceDown
+    });
+  }
+
+  function destroyFieldCardToGraveyard(owner, zone, slotIdx, options = {}) {
+    return sendFieldCardToGraveyard(owner, zone, slotIdx, {
+      ...options,
+      shatter: true
+    });
+  }
+
+  async function sendHandCardsToGraveyard(owner, handIndexes) {
+    const hand = owner === "player" ? state.playerHand : state.aiHand;
+    const handEl = ownerHandEl(owner);
+    const targets = [...handIndexes]
+      .filter((idx) => hand[idx])
+      .sort((a, b) => b - a)
+      .map((idx) => ({
+        idx,
+        card: hand[idx],
+        rect: readRect(handEl?.children[idx])
+      }));
+
+    targets.forEach(({ idx, card }) => {
+      hand.splice(idx, 1);
+      ownerGraveyard(owner).push(card);
+    });
+
+    renderPlayerHand();
+    renderAiHand();
+    updateCounts();
+    await Promise.all(targets.map(({ card, rect }) => (
+      animateCardMove(card, rect, ownerGraveyardSlot(owner), "is-to-graveyard", {
+        faceDown: owner === "ai"
+      })
+    )));
+  }
+
+  async function sendActivatedSpellToGraveyard(spellContext) {
+    if (!spellContext?.card) return;
+    let fromRect = spellContext.sourceRect;
+
+    if (spellContext.source === "field" && Number.isInteger(spellContext.slotIdx)) {
+      const fieldCard = state.playerSpellTrap[spellContext.slotIdx];
+      const slot = spellTrapSlots("player")[spellContext.slotIdx];
+      fromRect = readRect(slot) || fromRect;
+      if (fieldCard) state.playerSpellTrap[spellContext.slotIdx] = null;
+      renderField();
+    }
+
+    state.playerGY.push(spellContext.card);
+    updateCounts();
+    await animateCardMove(spellContext.card, fromRect, playerGYSlot, "is-to-graveyard");
   }
 
   function animateLifeChange(owner, delta) {
@@ -3990,6 +4111,10 @@ if (lobbyEl) {
       const el = document.createElement("div");
       el.className = "bf-hand-card";
       if (state.selectedHandIdx === i) el.classList.add("is-selected");
+      if (state.pendingSpell?.kind === "special-summon-hand" &&
+          state.pendingSpell.eligibleHandIndexes.includes(i)) {
+        el.classList.add("is-spell-target");
+      }
 
       const t = cardTypeName(card);
       const isMonster = t === "monster";
@@ -4009,7 +4134,10 @@ if (lobbyEl) {
 
       el.addEventListener("mouseenter", () => showCardInfo(card));
       el.addEventListener("mouseleave", () => { if (state.selectedHandIdx !== i) clearCardInfo(); });
-      el.addEventListener("click",       () => selectHandCard(i));
+      el.addEventListener("click", () => {
+        if (handleSpellHandSelection(i, el)) return;
+        selectHandCard(i);
+      });
       el.addEventListener("contextmenu", (e) => { e.preventDefault(); openHandCardMenu(i, el); });
       playerHandEl.appendChild(el);
     });
@@ -4032,6 +4160,7 @@ if (lobbyEl) {
       btn.setAttribute("aria-current", active ? "step" : "false");
     });
     if (turnEl) turnEl.textContent = state.turn;
+    updateSurrenderButton();
   }
 
   function setPhase(phase) {
@@ -4076,6 +4205,10 @@ if (lobbyEl) {
 
   // ── Select a hand card ──────────────────────────────────
   function selectHandCard(idx) {
+    if (isSpellResolutionBusy()) {
+      showStatus("Finish resolving the active spell first.");
+      return;
+    }
     const wasSelected = state.selectedHandIdx === idx;
     state.selectedHandIdx = wasSelected ? null : idx;
     state.pendingAction = null;
@@ -4092,9 +4225,98 @@ if (lobbyEl) {
 
   // ── Play a card from hand to field ─────────────────────
   let _handMenuEl = null;
+  let _choiceDialogEl = null;
+  let _spellResolveBtnEl = null;
 
   function isPlayerMainPhase() {
     return state.activePlayer === "player" && (state.phase === "main1" || state.phase === "main2");
+  }
+
+  function isSpellResolutionBusy() {
+    return Boolean(state.resolvingSpell || state.pendingSpell);
+  }
+
+  function closeChoiceDialog() {
+    if (_choiceDialogEl) {
+      _choiceDialogEl.remove();
+      _choiceDialogEl = null;
+    }
+  }
+
+  function closeSpellResolveButton() {
+    if (_spellResolveBtnEl) {
+      _spellResolveBtnEl.remove();
+      _spellResolveBtnEl = null;
+    }
+  }
+
+  function showSpellResolveButton(label, onClick) {
+    closeSpellResolveButton();
+    const btn = document.createElement("button");
+    btn.className = "bf-spell-resolve-btn";
+    btn.type = "button";
+    btn.textContent = label;
+    btn.addEventListener("click", async () => {
+      closeSpellResolveButton();
+      await onClick();
+    });
+    document.body.appendChild(btn);
+    _spellResolveBtnEl = btn;
+  }
+
+  function openCardChoiceDialog(title, entries, onChoose, onCancel = null) {
+    closeChoiceDialog();
+    if (!entries.length) return false;
+
+    const dialog = document.createElement("div");
+    dialog.className = "bf-choice-dialog";
+    _choiceDialogEl = dialog;
+
+    const panel = document.createElement("div");
+    panel.className = "bf-choice-panel";
+
+    const head = document.createElement("div");
+    head.className = "bf-choice-head";
+
+    const heading = document.createElement("div");
+    heading.className = "bf-choice-title";
+    heading.textContent = title;
+    head.appendChild(heading);
+
+    const closeBtn = document.createElement("button");
+    closeBtn.className = "bf-choice-close";
+    closeBtn.type = "button";
+    closeBtn.textContent = "X";
+    closeBtn.addEventListener("click", () => {
+      closeChoiceDialog();
+      if (typeof onCancel === "function") onCancel();
+    });
+    head.appendChild(closeBtn);
+
+    const list = document.createElement("div");
+    list.className = "bf-choice-list";
+
+    entries.forEach((entry) => {
+      const btn = document.createElement("button");
+      btn.className = "bf-choice-card";
+      btn.type = "button";
+      btn.innerHTML = `
+        <span class="bf-choice-card-name">${cardNameStr(entry.card)}</span>
+        <span class="bf-choice-card-meta">${cardTypeLabel(entry.card)}</span>
+      `;
+      btn.addEventListener("mouseenter", () => showCardInfo(entry.card));
+      btn.addEventListener("mouseleave", clearCardInfo);
+      btn.addEventListener("click", () => {
+        closeChoiceDialog();
+        onChoose(entry);
+      });
+      list.appendChild(btn);
+    });
+
+    panel.append(head, list);
+    dialog.appendChild(panel);
+    document.body.appendChild(dialog);
+    return true;
   }
 
   function canFlipSummon(slotIdx) {
@@ -4224,7 +4446,11 @@ if (lobbyEl) {
   function attachSlotListeners() {
     // Player monster slots
     Array.from(playerMonZone.querySelectorAll(".bf-slot")).forEach((slot, i) => {
-      slot.addEventListener("click", () => {
+      slot.addEventListener("click", async () => {
+        if (await completeSpellSpecialSummon(i)) return;
+        if (await completeSpellRevive(i)) return;
+        if (await handleSpellFieldTarget("player", "monster", i)) return;
+
         // Tribute selection mode
         if (state.tributesPending > 0 && state.playerMonster[i] !== null &&
             !state.tributesSelected.includes(i)) {
@@ -4254,14 +4480,27 @@ if (lobbyEl) {
 
     // Player spell/trap slots
     Array.from(playerSTZone.querySelectorAll(".bf-slot")).forEach((slot, i) => {
-      slot.addEventListener("click", () => {
+      slot.addEventListener("click", async () => {
+        if (await handleSpellFieldTarget("player", "spelltrap", i)) return;
+        const fieldCard = state.playerSpellTrap[i];
+        if (!state.pendingAction && fieldCard && cardTypeName(fieldCard) === "spell" && isPlayerMainPhase()) {
+          await activateSpellFromField(i);
+          return;
+        }
         playToSlot(state.playerSpellTrap, i, false);
       });
     });
 
     Array.from(aiMonZone.querySelectorAll(".bf-slot")).forEach((slot, i) => {
-      slot.addEventListener("click", () => {
+      slot.addEventListener("click", async () => {
+        if (await handleSpellFieldTarget("ai", "monster", i)) return;
         attackSelectedTarget(i);
+      });
+    });
+
+    Array.from(aiSTZone.querySelectorAll(".bf-slot")).forEach((slot, i) => {
+      slot.addEventListener("click", async () => {
+        await handleSpellFieldTarget("ai", "spelltrap", i);
       });
     });
   }
@@ -4399,8 +4638,61 @@ if (lobbyEl) {
     return owner === "player" ? $(".bf-player-lp-bar") : $(".bf-ai-lp-bar");
   }
 
-  function adjustLife(owner, amount) {
-    if (amount === 0) return;
+  function ownerSideRect(owner) {
+    const elements = owner === "player"
+      ? [playerMonZone, playerSTZone, playerHandEl]
+      : [aiHandEl, aiSTZone, aiMonZone];
+    const rects = elements.map(readRect).filter(Boolean);
+    if (!rects.length) return readRect(lifeBar(owner));
+
+    const left = Math.min(...rects.map((rect) => rect.left));
+    const top = Math.min(...rects.map((rect) => rect.top));
+    const right = Math.max(...rects.map((rect) => rect.left + rect.width));
+    const bottom = Math.max(...rects.map((rect) => rect.top + rect.height));
+    return { left, top, width: right - left, height: bottom - top };
+  }
+
+  function animateSpellDamage(owner) {
+    const rect = ownerSideRect(owner);
+    if (!rect) return Promise.resolve();
+
+    const wash = document.createElement("div");
+    wash.className = "bf-spell-damage-wash";
+    wash.style.left = `${rect.left}px`;
+    wash.style.top = `${rect.top}px`;
+    wash.style.width = `${rect.width}px`;
+    wash.style.height = `${rect.height}px`;
+    document.body.appendChild(wash);
+    setTimeout(() => wash.remove(), SPELL_LP_ANIM_MS);
+    return sleep(SPELL_LP_ANIM_MS);
+  }
+
+  function animateSpellHeal(owner) {
+    const rect = ownerSideRect(owner);
+    if (!rect) return Promise.resolve();
+
+    const positions = [
+      [0.18, 0.76], [0.34, 0.58], [0.48, 0.72], [0.62, 0.54],
+      [0.76, 0.70], [0.27, 0.42], [0.68, 0.36], [0.50, 0.46]
+    ];
+
+    positions.forEach(([x, y], index) => {
+      const cross = document.createElement("div");
+      cross.className = "bf-spell-heal-cross";
+      cross.textContent = "+";
+      cross.style.left = `${rect.left + rect.width * x}px`;
+      cross.style.top = `${rect.top + rect.height * y}px`;
+      cross.style.setProperty("--heal-delay", `${index * 28}ms`);
+      cross.style.setProperty("--heal-drift", `${(index % 3 - 1) * 18}px`);
+      document.body.appendChild(cross);
+      setTimeout(() => cross.remove(), SPELL_LP_ANIM_MS + index * 28);
+    });
+
+    return sleep(SPELL_LP_ANIM_MS);
+  }
+
+  function adjustLife(owner, amount, options = {}) {
+    if (amount === 0) return Promise.resolve();
     const before = owner === "player" ? state.playerLP : state.aiLP;
     const after = Math.max(0, Math.min(MAX_LP, before - amount));
     if (owner === "player") state.playerLP = after;
@@ -4409,8 +4701,13 @@ if (lobbyEl) {
       if (after <= 0) state.defeatedOwner = owner;
     }
     updateLP();
-    animateLifeChange(owner, after - before);
-    damageFlash(lifeBar(owner));
+    const delta = after - before;
+    animateLifeChange(owner, delta);
+    if (delta < 0) damageFlash(lifeBar(owner));
+
+    if (options.spellVisual === "damage" && delta < 0) return animateSpellDamage(owner);
+    if (options.spellVisual === "heal" && delta > 0) return animateSpellHeal(owner);
+    return Promise.resolve();
   }
 
   function defeatMessage(owner) {
@@ -4694,6 +4991,7 @@ if (lobbyEl) {
     document.querySelectorAll(".bf-slot.is-target").forEach(el => el.classList.remove("is-target"));
     document.querySelectorAll(".bf-slot.is-tribute").forEach(el => el.classList.remove("is-tribute"));
     document.querySelectorAll(".bf-slot.is-tribute-selected").forEach(el => el.classList.remove("is-tribute-selected"));
+    clearSpellHighlights();
     clearBattleSelection();
   }
 
@@ -4721,6 +5019,471 @@ if (lobbyEl) {
     }
   }
 
+  function clearSpellHighlights() {
+    document.querySelectorAll(".is-spell-target, .is-spell-selected").forEach((el) => {
+      el.classList.remove("is-spell-target", "is-spell-selected");
+    });
+  }
+
+  function spellEffectName(card) {
+    return String(card?.spellEffect || "").trim();
+  }
+
+  async function spellActivationContextFromHand(handIdx) {
+    const handCardEl = playerHandEl?.querySelectorAll(".bf-hand-card")[handIdx];
+    const sourceRect = readRect(handCardEl);
+    const slotIdx = state.playerSpellTrap.indexOf(null);
+    if (slotIdx < 0) {
+      showStatus("No empty Spell / Trap Zone slot is available to activate that spell.");
+      return null;
+    }
+
+    const [card] = state.playerHand.splice(handIdx, 1);
+    const activatedCard = { ...card, _faceDown: false };
+    state.playerSpellTrap[slotIdx] = activatedCard;
+    state.selectedHandIdx = null;
+    state.pendingAction = null;
+    clearSlotHighlights();
+    clearCardInfo();
+    renderPlayerHand();
+    renderField();
+    updateCounts();
+
+    const slot = spellTrapSlots("player")[slotIdx];
+    await animatePlaceCard(activatedCard, sourceRect, slot, false);
+    return { card: activatedCard, sourceRect: readRect(slot) || sourceRect, source: "field", slotIdx, fromHand: true };
+  }
+
+  function spellActivationContextFromField(slotIdx) {
+    const slot = spellTrapSlots("player")[slotIdx];
+    const sourceRect = readRect(slot);
+    const card = state.playerSpellTrap[slotIdx];
+    if (card) {
+      card._faceDown = false;
+      card._justFlipped = true;
+    }
+    clearSlotHighlights();
+    clearCardInfo();
+    renderField();
+    updateCounts();
+    return { card, sourceRect, source: "field", slotIdx };
+  }
+
+  async function finishSpellActivation(context, message = "", options = {}) {
+    state.pendingSpell = null;
+    clearSpellHighlights();
+    closeSpellResolveButton();
+    closeChoiceDialog();
+    renderPlayerHand();
+    renderField();
+    if (message) showStatus(message, 1800);
+    try {
+      if (options.effectPromise) {
+        await options.effectPromise;
+      } else {
+        await sleep(options.settleMs ?? SPELL_EFFECT_SETTLE_MS);
+      }
+      await sendActivatedSpellToGraveyard(context);
+      if (state.defeatedOwner) endGame(defeatMessage(state.defeatedOwner));
+    } finally {
+      state.resolvingSpell = false;
+    }
+  }
+
+  function availableFieldTargets(owner, zones = ["monster", "spelltrap"]) {
+    const entries = [];
+    zones.forEach((zone) => {
+      fieldForZone(owner, zone).forEach((card, index) => {
+        if (card) entries.push({ owner, zone, index, card });
+      });
+    });
+    return entries;
+  }
+
+  function highlightSpellTargets(entries) {
+    clearSpellHighlights();
+    entries.forEach(({ owner, zone, index }) => {
+      slotsForZone(owner, zone)[index]?.classList.add("is-spell-target");
+    });
+  }
+
+  function targetKey(target) {
+    return `${target.owner}:${target.zone}:${target.index}`;
+  }
+
+  function pendingSpellTargetEntries() {
+    const pending = state.pendingSpell;
+    if (!pending) return [];
+
+    if (pending.kind === "destroy-opponent-cards") {
+      return availableFieldTargets("ai", ["monster", "spelltrap"]);
+    }
+    if (pending.kind === "increase-stat") {
+      return availableFieldTargets("player", ["monster"]);
+    }
+    if (pending.kind === "restrict-monster") {
+      return availableFieldTargets("ai", ["monster"]);
+    }
+    return [];
+  }
+
+  function beginSpellTargetSelection(context, kind, entries, options = {}) {
+    closeSpellResolveButton();
+    state.pendingSpell = {
+      context,
+      kind,
+      count: options.count || 1,
+      selected: [],
+      statType: options.statType || "",
+      amount: options.amount || 0,
+      turns: options.turns || 1
+    };
+    highlightSpellTargets(entries);
+    showStatus(options.message || "Select a target for the spell.", 2500);
+  }
+
+  async function resolveSelectedSpellTargets() {
+    const pending = state.pendingSpell;
+    if (!pending) return;
+
+    const selected = pending.selected || [];
+    if (pending.kind === "destroy-opponent-cards") {
+      const targets = selected
+        .map((key) => pendingSpellTargetEntries().find((entry) => targetKey(entry) === key))
+        .filter(Boolean);
+      await Promise.all(targets.map((target) => (
+        destroyFieldCardToGraveyard(target.owner, target.zone, target.index, {
+          faceDown: target.zone === "spelltrap"
+        })
+      )));
+      await finishSpellActivation(pending.context, `${cardNameStr(pending.context.card)} destroyed ${targets.length} opponent card${targets.length === 1 ? "" : "s"}.`);
+    }
+  }
+
+  async function handleSpellFieldTarget(owner, zone, index) {
+    const pending = state.pendingSpell;
+    if (!pending) return false;
+
+    const entry = pendingSpellTargetEntries().find((target) => (
+      target.owner === owner && target.zone === zone && target.index === index
+    ));
+    if (!entry) {
+      showStatus("That card is not a valid spell target.");
+      return true;
+    }
+
+    if (pending.kind === "increase-stat") {
+      const card = state.playerMonster[index];
+      const amount = pending.amount || 0;
+      if (pending.statType === "defense") {
+        card.defensePoints = cardDef(card) + amount;
+      } else {
+        card.attackPoints = cardAtk(card) + amount;
+      }
+      card._justModeChanged = true;
+      renderField();
+      await finishSpellActivation(pending.context, `${cardNameStr(card)} gained ${amount} ${pending.statType === "defense" ? "DEF" : "ATK"}.`);
+      return true;
+    }
+
+    if (pending.kind === "restrict-monster") {
+      const card = state.aiMonster[index];
+      card._attackRestrictedUntilTurn = Math.max(Number(card._attackRestrictedUntilTurn || 0), state.turn + pending.turns - 1);
+      renderField();
+      await finishSpellActivation(pending.context, `${cardNameStr(card)} cannot attack for ${pending.turns} turn${pending.turns === 1 ? "" : "s"}.`);
+      return true;
+    }
+
+    if (pending.kind === "destroy-opponent-cards") {
+      const key = targetKey(entry);
+      if (!pending.selected.includes(key)) {
+        pending.selected.push(key);
+        slotsForZone(owner, zone)[index]?.classList.add("is-spell-selected");
+      }
+      const maxTargets = Math.min(pending.count, pendingSpellTargetEntries().length);
+      if (pending.selected.length >= maxTargets) await resolveSelectedSpellTargets();
+      else {
+        showSpellResolveButton(`Destroy ${pending.selected.length} selected`, resolveSelectedSpellTargets);
+        showStatus(`Select ${maxTargets - pending.selected.length} more card${maxTargets - pending.selected.length === 1 ? "" : "s"} to destroy, or resolve selected.`);
+      }
+      return true;
+    }
+
+    return false;
+  }
+
+  function eligibleSpellSummonHandIndexes() {
+    const hasEmptySlot = state.playerMonster.some((card) => card === null);
+    if (!hasEmptySlot) return [];
+    return state.playerHand
+      .map((card, index) => ({ card, index }))
+      .filter(({ card }) => isMonsterCard(card) && cardLevel(card) >= 1 && cardLevel(card) <= 4)
+      .map(({ index }) => index);
+  }
+
+  function handleSpellHandSelection(handIdx, handCardEl) {
+    const pending = state.pendingSpell;
+    if (!pending || pending.kind !== "special-summon-hand") return false;
+
+    if (!pending.eligibleHandIndexes.includes(handIdx)) {
+      showStatus("Select a level 1 to 4 monster for this spell.");
+      return true;
+    }
+
+    pending.kind = "special-summon-slot";
+    pending.handIdx = handIdx;
+    pending.handRect = readRect(handCardEl);
+    clearSpellHighlights();
+    Array.from(playerMonZone.querySelectorAll(".bf-slot")).forEach((slot, index) => {
+      if (!state.playerMonster[index]) slot.classList.add("is-spell-target");
+    });
+    renderPlayerHand();
+    showStatus("Choose an empty Monster Zone slot to special summon it.");
+    return true;
+  }
+
+  async function completeSpellSpecialSummon(slotIdx) {
+    const pending = state.pendingSpell;
+    if (!pending || pending.kind !== "special-summon-slot") return false;
+    if (state.playerMonster[slotIdx]) {
+      showStatus("Choose an empty Monster Zone slot.");
+      return true;
+    }
+
+    const [monster] = state.playerHand.splice(pending.handIdx, 1);
+    if (!monster) {
+      await finishSpellActivation(pending.context, "The selected monster is no longer in hand.");
+      return true;
+    }
+
+    const summoned = { ...monster, _faceDown: false, _position: "attack" };
+    state.playerMonster[slotIdx] = summoned;
+    renderPlayerHand();
+    renderField();
+    await animatePlaceCard(summoned, pending.handRect, monsterSlots("player")[slotIdx], false);
+    await finishSpellActivation(pending.context, `${cardNameStr(summoned)} was special summoned by ${cardNameStr(pending.context.card)}.`);
+    return true;
+  }
+
+  async function completeSpellRevive(slotIdx) {
+    const pending = state.pendingSpell;
+    if (!pending || pending.kind !== "revive-slot") return false;
+    if (state.playerMonster[slotIdx]) {
+      showStatus("Choose an empty Monster Zone slot.");
+      return true;
+    }
+
+    let gyIndex = state.playerGY.findIndex((card) => card === pending.gyCard);
+    if (gyIndex < 0 && state.playerGY[pending.gyIndex] === pending.gyCard) gyIndex = pending.gyIndex;
+    if (gyIndex < 0) {
+      await finishSpellActivation(pending.context, "The selected monster is no longer in your graveyard.");
+      return true;
+    }
+
+    const [monster] = state.playerGY.splice(gyIndex, 1);
+    const revived = { ...monster, _faceDown: false, _position: "attack" };
+    state.playerMonster[slotIdx] = revived;
+    updateCounts();
+    renderField();
+    await animatePlaceCard(revived, playerGYSlot, monsterSlots("player")[slotIdx], false);
+    await finishSpellActivation(pending.context, `${cardNameStr(revived)} was revived to the field.`);
+    return true;
+  }
+
+  function graveyardChoiceEntries(type) {
+    return state.playerGY
+      .map((card, index) => ({ card, index }))
+      .filter(({ card }) => type === "all" || cardTypeName(card) === type);
+  }
+
+  async function destroyAllFieldCards(owner, zone, context, label) {
+    const targets = availableFieldTargets(owner, [zone]);
+    if (!targets.length) {
+      await finishSpellActivation(context, `${cardNameStr(context.card)} found no ${label} to destroy.`);
+      return;
+    }
+    await Promise.all(targets.map((target) => (
+      destroyFieldCardToGraveyard(owner, zone, target.index, {
+        faceDown: zone === "spelltrap"
+      })
+    )));
+    await finishSpellActivation(context, `${cardNameStr(context.card)} destroyed all opponent ${label}.`);
+  }
+
+  async function activateSpellContext(context) {
+    if (!context?.card) return;
+    state.resolvingSpell = true;
+    const card = context.card;
+    const effect = spellEffectName(card);
+    const params = spellParams(card);
+
+    switch (effect) {
+      case "special-summon": {
+        const eligibleHandIndexes = eligibleSpellSummonHandIndexes();
+        if (!eligibleHandIndexes.length) {
+          await finishSpellActivation(context, "No level 1 to 4 monsters are available to special summon.");
+          return;
+        }
+        state.pendingSpell = { context, kind: "special-summon-hand", eligibleHandIndexes };
+        renderPlayerHand();
+        showStatus("Select a highlighted level 1 to 4 monster from your hand.");
+        return;
+      }
+      case "draw": {
+        const count = boundedNumber(params.drawCount, 1, 1, 5);
+        let drawn = 0;
+        for (let i = 0; i < count; i++) {
+          if (!drawCard("player")) break;
+          drawn++;
+        }
+        await finishSpellActivation(context, `${cardNameStr(card)} drew ${drawn} card${drawn === 1 ? "" : "s"}.`, {
+          settleMs: drawn ? CARD_TRAVEL_MS + 80 : SPELL_EFFECT_SETTLE_MS
+        });
+        return;
+      }
+      case "destroy-opponent-cards": {
+        const entries = availableFieldTargets("ai", ["monster", "spelltrap"]);
+        if (!entries.length) {
+          await finishSpellActivation(context, "The opponent controls no cards to destroy.");
+          return;
+        }
+        beginSpellTargetSelection(context, "destroy-opponent-cards", entries, {
+          count: boundedNumber(params.destroyCount, 1, 1, 5),
+          message: `Select up to ${boundedNumber(params.destroyCount, 1, 1, 5)} opponent card${boundedNumber(params.destroyCount, 1, 1, 5) === 1 ? "" : "s"} to destroy.`
+        });
+        return;
+      }
+      case "increase-stat": {
+        const entries = availableFieldTargets("player", ["monster"]);
+        const statType = params.statType === "defense" ? "defense" : "attack";
+        const amount = statType === "defense"
+          ? boundedNumber(params.defAmount, 100, 0, 9999)
+          : boundedNumber(params.atkAmount, 100, 0, 9999);
+        if (!entries.length) {
+          await finishSpellActivation(context, "You control no monsters to strengthen.");
+          return;
+        }
+        beginSpellTargetSelection(context, "increase-stat", entries, {
+          statType,
+          amount,
+          message: `Select one of your monsters to gain ${amount} ${statType === "defense" ? "DEF" : "ATK"}.`
+        });
+        return;
+      }
+      case "destroy-opponent-monsters":
+      case "destroy-all-monsters":
+        await destroyAllFieldCards("ai", "monster", context, "monsters");
+        return;
+      case "destroy-all-spell-trap":
+        await destroyAllFieldCards("ai", "spelltrap", context, "spell/trap cards");
+        return;
+      case "revive": {
+        const hasEmptySlot = state.playerMonster.some((slot) => slot === null);
+        const entries = graveyardChoiceEntries("monster");
+        if (!hasEmptySlot || !entries.length) {
+          await finishSpellActivation(context, !hasEmptySlot ? "No Monster Zone slot is available for revival." : "No monsters exist in your graveyard.");
+          return;
+        }
+        openCardChoiceDialog("Revive a Monster", entries, (entry) => {
+          state.pendingSpell = { context, kind: "revive-slot", gyIndex: entry.index, gyCard: entry.card };
+          clearSpellHighlights();
+          Array.from(playerMonZone.querySelectorAll(".bf-slot")).forEach((slot, index) => {
+            if (!state.playerMonster[index]) slot.classList.add("is-spell-target");
+          });
+          showStatus("Choose an empty Monster Zone slot for the revived monster.");
+        }, async () => {
+          await finishSpellActivation(context, "Revival was cancelled.");
+        });
+        return;
+      }
+      case "increase-lp": {
+        const amount = boundedNumber(params.lpAmount, 500, 0, 99999);
+        const effectPromise = adjustLife("player", -amount, { spellVisual: "heal" });
+        await finishSpellActivation(context, `You gained ${amount} life points.`, { effectPromise });
+        return;
+      }
+      case "decrease-lp": {
+        const amount = boundedNumber(params.lpAmount, 500, 0, 99999);
+        const effectPromise = adjustLife("ai", amount, { spellVisual: "damage" });
+        await finishSpellActivation(context, `AI lost ${amount} life points.`, { effectPromise });
+        return;
+      }
+      case "return-graveyard": {
+        const type = params.graveyardType || "monster";
+        const dest = params.graveyardDest === "hand" ? "hand" : "deck";
+        const entries = graveyardChoiceEntries(type);
+        if (!entries.length) {
+          await finishSpellActivation(context, `No ${type} cards exist in your graveyard.`);
+          return;
+        }
+        openCardChoiceDialog(`Return a ${type} card`, entries, async (entry) => {
+          const [returned] = state.playerGY.splice(entry.index, 1);
+          if (dest === "hand") state.playerHand.push(returned);
+          else state.playerDeck.unshift(returned);
+          updateCounts();
+          renderPlayerHand();
+          await animateCardMove(returned, playerGYSlot, dest === "hand" ? (playerHandEl?.lastElementChild || playerHandEl) : playerDeckPile, "is-draw");
+          await finishSpellActivation(context, `${cardNameStr(returned)} returned to your ${dest}.`);
+        }, async () => {
+          await finishSpellActivation(context, "Graveyard return was cancelled.");
+        });
+        return;
+      }
+      case "send-to-graveyard": {
+        const count = Math.min(boundedNumber(params.sendCount, 1, 1, 5), state.aiHand.length);
+        if (!count) {
+          await finishSpellActivation(context, "AI has no cards in hand to send to the graveyard.");
+          return;
+        }
+        await sendHandCardsToGraveyard("ai", Array.from({ length: count }, (_, index) => index));
+        await finishSpellActivation(context, `AI sent ${count} card${count === 1 ? "" : "s"} from hand to the graveyard.`);
+        return;
+      }
+      case "restrict-monster": {
+        const entries = availableFieldTargets("ai", ["monster"]);
+        if (!entries.length) {
+          await finishSpellActivation(context, "AI controls no monsters to restrict.");
+          return;
+        }
+        beginSpellTargetSelection(context, "restrict-monster", entries, {
+          turns: boundedNumber(params.restrictTurns, 1, 1, 9),
+          message: "Select an AI monster to restrict from attacking."
+        });
+        return;
+      }
+      case "restrict-opponent": {
+        const turns = boundedNumber(params.restrictTurns, 1, 1, 9);
+        state.aiBattleRestrictedUntilTurn = Math.max(state.aiBattleRestrictedUntilTurn, state.turn + turns - 1);
+        await finishSpellActivation(context, `AI cannot enter the Battle Phase for ${turns} turn${turns === 1 ? "" : "s"}.`);
+        return;
+      }
+      default:
+        await finishSpellActivation(context, `${cardNameStr(card)} has no spell effect selected.`);
+    }
+  }
+
+  async function activateSpellFromHand(handIdx) {
+    if (isSpellResolutionBusy()) {
+      showStatus("Finish resolving the active spell first.");
+      return;
+    }
+    const card = state.playerHand[handIdx];
+    if (!card || cardTypeName(card) !== "spell") return;
+    const context = await spellActivationContextFromHand(handIdx);
+    if (!context) return;
+    await activateSpellContext(context);
+  }
+
+  async function activateSpellFromField(slotIdx) {
+    if (isSpellResolutionBusy()) {
+      showStatus("Finish resolving the active spell first.");
+      return;
+    }
+    const card = state.playerSpellTrap[slotIdx];
+    if (!card || cardTypeName(card) !== "spell") return;
+    await activateSpellContext(spellActivationContextFromField(slotIdx));
+  }
+
   // ── Hand card context menu ───────────────────────────────
   function closeHandMenu() {
     if (_handMenuEl) { _handMenuEl.remove(); _handMenuEl = null; }
@@ -4729,6 +5492,7 @@ if (lobbyEl) {
   function openHandCardMenu(idx, anchorEl) {
     closeHandMenu();
     if (state.activePlayer !== "player") return;
+    if (isSpellResolutionBusy()) { showStatus("Finish resolving the active spell first."); return; }
     if (state.phase === "draw") return;
     const card = state.playerHand[idx];
     const t = cardTypeName(card);
@@ -4829,6 +5593,10 @@ if (lobbyEl) {
       return;
     }
     if (!inMain) { showStatus("You can only play cards during a Main Phase"); return; }
+    if (action === "activate-spell") {
+      activateSpellFromHand(handIdx);
+      return;
+    }
 
     // Tribute check for normal summon
     if (isNormalSummonAction(action)) {
@@ -4893,6 +5661,10 @@ if (lobbyEl) {
   phaseButtons.forEach((btn) => {
     btn.addEventListener("click", () => {
       if (state.activePlayer !== "player") return;
+      if (isSpellResolutionBusy()) {
+        showStatus("Finish resolving the active spell first.");
+        return;
+      }
       const current = phaseOrder.indexOf(state.phase);
       const target  = phaseOrder.indexOf(btn.dataset.bfPhase);
 
@@ -4961,6 +5733,10 @@ if (lobbyEl) {
 
   // ── Player ends turn ────────────────────────────────────
   function endPlayerTurn() {
+    if (isSpellResolutionBusy()) {
+      showStatus("Finish resolving the active spell first.");
+      return;
+    }
     state.activePlayer = "ai";
     state.hasNormalSummoned = false;
     clearModeChangesFor("ai");
@@ -5062,11 +5838,13 @@ if (lobbyEl) {
   }
 
   function targetBattleValue(card) {
-    if (card._faceDown || card._position === "defense") return cardDef(card);
+    if (card._faceDown) return AI_FACE_DOWN_DEFENSE_GUESS;
+    if (card._position === "defense") return cardDef(card);
     return cardAtk(card);
   }
 
   function aiMonsterValue(card) {
+    if (card._faceDown) return AI_FACE_DOWN_VALUE_GUESS;
     return Math.max(cardAtk(card), cardDef(card));
   }
 
@@ -5124,9 +5902,13 @@ if (lobbyEl) {
   }
 
   function chooseAiAttackAction(attacker, attackerIdx) {
-    const atk = cardAtk(attacker);
-    if (!attacker || attacker._faceDown || attacker._position === "defense" || atk <= 0) {
+    if (!attacker || attacker._faceDown || attacker._position === "defense") {
       return { type: "skip", reason: "cannot-attack" };
+    }
+    const atk = cardAtk(attacker);
+    if (atk <= 0) return { type: "skip", reason: "cannot-attack" };
+    if (Number(attacker._attackRestrictedUntilTurn || 0) >= state.turn) {
+      return { type: "skip", reason: "restricted" };
     }
 
     const targets = state.playerMonster
@@ -5146,11 +5928,14 @@ if (lobbyEl) {
   }
 
   async function doAiTurn() {
+    if (isDuelEnded()) return;
     // Draw Phase
     setPhase("draw");
     if (!drawCard("ai")) return;
+    if (isDuelEnded()) return;
 
     await sleep(1300);
+    if (isDuelEnded()) return;
 
     // Main Phase 1 — try to play one card
     setPhase("main1");
@@ -5181,125 +5966,64 @@ if (lobbyEl) {
         renderAiHand();
         updateCounts();
         await sleep(1600);
+        if (isDuelEnded()) return;
       }
     }
 
     if (changeAiMonsterModes()) {
       await sleep(1100);
+      if (isDuelEnded()) return;
     }
 
     // Battle Phase
-    setPhase("battle");
-    await sleep(1200);
+    if (Number(state.aiBattleRestrictedUntilTurn || 0) >= state.turn) {
+      setPhase("main2");
+      showStatus("AI is restricted from entering the Battle Phase.", 1600);
+      await sleep(1600);
+      if (isDuelEnded()) return;
+    } else {
+      setPhase("battle");
+      await sleep(1200);
+      if (isDuelEnded()) return;
 
-    for (let i = 0; i < 5; i++) {
-      const attacker = state.aiMonster[i];
-      if (!attacker) continue;
-      if (attacker._position === "defense") continue; // defense monsters don't attack
+      for (let i = 0; i < 5; i++) {
+        if (isDuelEnded()) return;
+        const attacker = state.aiMonster[i];
+        if (!attacker) continue;
+        if (attacker._position === "defense") continue; // defense monsters don't attack
 
-      const attackAction = chooseAiAttackAction(attacker, i);
-      if (attackAction.type === "skip") {
-        if (attackAction.reason === "no-favorable-target") {
-          showStatus(`AI keeps ${cardNameStr(attacker)} from making a risky attack.`, 1200);
-          await sleep(800);
+        const attackAction = chooseAiAttackAction(attacker, i);
+        if (attackAction.type === "skip") {
+          if (attackAction.reason === "restricted") {
+            showStatus(`${cardNameStr(attacker)} is restricted from attacking.`, 1200);
+            await sleep(800);
+            if (isDuelEnded()) return;
+          } else if (attackAction.reason === "no-favorable-target") {
+            showStatus(`AI keeps ${cardNameStr(attacker)} from making a risky attack.`, 1200);
+            await sleep(800);
+            if (isDuelEnded()) return;
+          }
+          continue;
         }
+        const chosenTargetIdx = attackAction.type === "direct" ? null : attackAction.targetIdx;
+        await showAttackArrow(
+          monsterSlots("ai")[i],
+          attackAction.type === "direct" ? directAttackTarget("ai") : monsterSlots("player")[chosenTargetIdx]
+        );
+        if (isDuelEnded()) return;
+        if (await resolveMonsterAttack("ai", i, chosenTargetIdx)) return;
+        await sleep(1400);
+        if (isDuelEnded()) return;
         continue;
+
       }
-      const chosenTargetIdx = attackAction.type === "direct" ? null : attackAction.targetIdx;
-      await showAttackArrow(
-        monsterSlots("ai")[i],
-        attackAction.type === "direct" ? directAttackTarget("ai") : monsterSlots("player")[chosenTargetIdx]
-      );
-      if (await resolveMonsterAttack("ai", i, chosenTargetIdx)) return;
-      await sleep(1400);
-      continue;
-
-      const atk = cardAtk(attacker);
-      const atkSlotEl = aiMonZone.querySelectorAll(".bf-slot")[i];
-      atkSlotEl?.classList.add("is-attacking");
-      await sleep(960);
-      atkSlotEl?.classList.remove("is-attacking");
-
-      const targetIdx = state.playerMonster.findIndex((m) => m !== null);
-
-      if (targetIdx >= 0) {
-        const defender = state.playerMonster[targetIdx];
-
-        // Flip face-down player monster to defense position
-        if (defender._faceDown) {
-          defender._faceDown = false;
-          if (!defender._position) defender._position = "defense";
-          defender._justFlipped = true;
-          renderField();
-          await sleep(600);
-        }
-
-        const inDefense = defender._position === "defense";
-
-        if (inDefense) {
-          // ATK vs DEF
-          const def = cardDef(defender);
-          if (atk > def) {
-            state.playerGY.push(state.playerMonster[targetIdx]);
-            state.playerMonster[targetIdx] = null;
-            showStatus(`${cardNameStr(attacker)} destroys ${cardNameStr(defender)}! (No damage in defense mode)`);
-          } else if (atk === def) {
-            showStatus("Attack equals defense — no cards destroyed, no damage!");
-          } else {
-            const dmg = def - atk;
-            state.aiLP = Math.max(0, state.aiLP - dmg);
-            updateLP();
-            damageFlash($(".bf-ai-lp-bar"));
-            showStatus(`${cardNameStr(attacker)} can't break through! AI takes ${dmg} damage!`);
-          }
-        } else {
-          // ATK vs ATK
-          const defAtk = cardAtk(defender);
-          if (atk > defAtk) {
-            const dmg = atk - defAtk;
-            state.playerLP = Math.max(0, state.playerLP - dmg);
-            state.playerGY.push(state.playerMonster[targetIdx]);
-            state.playerMonster[targetIdx] = null;
-            updateLP();
-            damageFlash($(".bf-player-lp-bar"));
-            showStatus(`${cardNameStr(attacker)} destroys ${cardNameStr(defender)}! You take ${dmg} damage!`);
-          } else if (atk < defAtk) {
-            const dmg = defAtk - atk;
-            state.aiLP = Math.max(0, state.aiLP - dmg);
-            state.aiGY.push(state.aiMonster[i]);
-            state.aiMonster[i] = null;
-            updateLP();
-            damageFlash($(".bf-ai-lp-bar"));
-            showStatus(`${cardNameStr(defender)} destroys ${cardNameStr(attacker)}! AI takes ${dmg} damage!`);
-          } else {
-            state.aiGY.push(state.aiMonster[i]);
-            state.playerGY.push(state.playerMonster[targetIdx]);
-            state.aiMonster[i] = null;
-            state.playerMonster[targetIdx] = null;
-            showStatus("Both monsters are destroyed! No damage.");
-          }
-        }
-
-        renderField();
-        updateCounts();
-        await sleep(2000);
-      } else {
-        // Direct attack
-        if (atk > 0) {
-          state.playerLP = Math.max(0, state.playerLP - atk);
-          updateLP();
-          damageFlash($(".bf-player-lp-bar"));
-          showStatus(`${cardNameStr(attacker)} attacks directly for ${atk} damage!`);
-          await sleep(2000);
-        }
-      }
-
-      if (state.playerLP <= 0) { endGame("AI Wins! Better luck next time."); return; }
     }
 
     // End Phase → start player turn
+    if (isDuelEnded()) return;
     setPhase("end");
     await sleep(900);
+    if (isDuelEnded()) return;
 
     state.turn++;
     state.activePlayer = "player";
@@ -5329,8 +6053,26 @@ if (lobbyEl) {
     state.phase = "end";
     renderPhases();
     if (endTurnBtn) endTurnBtn.disabled = true;
+    updateSurrenderButton();
     showStatus(msg, 60000);
     showResultOverlay(msg);
+  }
+
+  function surrenderDuel() {
+    if (isDuelEnded() || !duelDeckCards.length) return;
+    state.defeatedOwner = "player";
+    state.playerLP = 0;
+    state.pendingSpell = null;
+    state.resolvingSpell = false;
+    state.resolvingBattle = false;
+    closeHandMenu();
+    closeChoiceDialog();
+    closeSpellResolveButton();
+    closeGraveyardDialog();
+    clearSlotHighlights();
+    clearCardInfo();
+    updateLP();
+    endGame("You surrendered. AI wins.");
   }
 
   function startDuel(deckCards = duelDeckCards, options = {}) {
@@ -5339,6 +6081,8 @@ if (lobbyEl) {
 
     duelDeckCards = [...cards];
     closeHandMenu();
+    closeChoiceDialog();
+    closeSpellResolveButton();
     closeGraveyardDialog();
     clearSlotHighlights();
     clearCardInfo();
@@ -5362,6 +6106,8 @@ if (lobbyEl) {
     state.aiSpellTrap = [null, null, null, null, null];
     state.selectedHandIdx = null;
     state.pendingAction = null;
+    state.pendingSpell = null;
+    state.resolvingSpell = false;
     state.selectedAttackIdx = null;
     state.tributesPending = 0;
     state.tributesSelected = [];
@@ -5369,6 +6115,7 @@ if (lobbyEl) {
     state.hasDrawn = false;
     state.monstersAttackedThisTurn = new Set();
     state.monstersChangedModeThisTurn = new Set();
+    state.aiBattleRestrictedUntilTurn = 0;
     state.resolvingBattle = false;
     state.defeatedOwner = null;
 
@@ -5394,6 +6141,8 @@ if (lobbyEl) {
   resultExitBtn?.addEventListener("click", () => {
     window.location.href = "home.html";
   });
+
+  surrenderBtn?.addEventListener("click", surrenderDuel);
 
   // ── Initialise ───────────────────────────────────────────
   async function init() {

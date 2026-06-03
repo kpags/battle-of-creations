@@ -1,0 +1,174 @@
+{
+  "causes": [
+    {
+      "value": "If you gain life points",
+      "label": "If you gain life points"
+    },
+    {
+      "value": "If this monster is flip summoned",
+      "label": "If this monster is flip summoned"
+    },
+    {
+      "value": "If you normal/special summoned a monster",
+      "label": "If you normal/special summoned a monster"
+    },
+    {
+      "value": "If this monster is normal/special summoned",
+      "label": "If this monster is normal/special summoned"
+    },
+    {
+      "value": "If a monster you control attacked",
+      "label": "If a monster you control attacked"
+    },
+    {
+      "value": "If this monster attacked",
+      "label": "If this monster attacked"
+    },
+    {
+      "value": "If this monster is destroyed and sent to the graveyard",
+      "label": "If this monster is destroyed and sent to the graveyard"
+    },
+    {
+      "value": "If this monster is drawn",
+      "label": "If this monster is drawn"
+    },
+    {
+      "value": "If this monster is in the hand",
+      "label": "If this monster is in the hand"
+    },
+    {
+      "value": "If this monster is attacked by the opponent",
+      "label": "If this monster is attacked by the opponent"
+    },
+    {
+      "value": "If opponent normal/special summons a monster",
+      "label": "If opponent normal/special summons a monster"
+    },
+    {
+      "value": "If opponent activates a card effect (spell/trap/effect monster)",
+      "label": "If opponent activates a card effect (spell/trap/effect monster)"
+    },
+    {
+      "value": "If opponent activates a spell/trap card",
+      "label": "If opponent activates a spell/trap card"
+    },
+    {
+      "value": "If opponent gains life points",
+      "label": "If opponent gains life points"
+    },
+    {
+      "value": "If opponent targets this monster by a card effect",
+      "label": "If opponent targets this monster by a card effect"
+    },
+    {
+      "value": "If opponent destroys 1 or more monsters you control",
+      "label": "If opponent destroys 1 or more monsters you control"
+    },
+    {
+      "value": "If opponent destroys 1 or more cards you control",
+      "label": "If opponent destroys 1 or more cards you control"
+    }
+  ],
+  "effects": [
+    {
+      "value": "special summon a level X to X monster from hand.",
+      "label": "Special summon a level X to X monster from hand",
+      "minLevel": 1
+    },
+    {
+      "value": "draw 1 card.",
+      "label": "Draw 1 card",
+      "minLevel": 1
+    },
+    {
+      "value": "revive a monster from your graveyard.",
+      "label": "Revive a monster from your graveyard",
+      "minLevel": 1
+    },
+    {
+      "value": "send a monster/spell/trap card from graveyard to hand/deck.",
+      "label": "Send a monster/spell/trap card from graveyard to hand/deck",
+      "minLevel": 1
+    },
+    {
+      "value": "reduce opponent's life points by up to 500.",
+      "label": "Reduce opponent's life points by up to 500",
+      "minLevel": 1
+    },
+    {
+      "value": "destroy an opponent's monster in the field.",
+      "label": "Destroy an opponent's monster in the field",
+      "minLevel": 1
+    },
+    {
+      "value": "destroy an opponent's spell/trap card in the field.",
+      "label": "Destroy an opponent's spell/trap card in the field",
+      "minLevel": 1
+    },
+    {
+      "value": "return a monster card from field to opponent's hand.",
+      "label": "Return a monster card from field to opponent's hand",
+      "minLevel": 1
+    },
+    {
+      "value": "return a spell/trap card from field to opponent's hand.",
+      "label": "Return a spell/trap card from field to opponent's hand",
+      "minLevel": 1
+    },
+    {
+      "value": "select and destroy 1-2 opponent's monsters.",
+      "label": "Select & destroy 1-2 opponent's monsters",
+      "minLevel": 5
+    },
+    {
+      "value": "select and destroy 1-2 opponent's spell/trap cards.",
+      "label": "Select & destroy 1-2 opponent's spell/trap cards",
+      "minLevel": 5
+    },
+    {
+      "value": "this monster can attack twice during this turn's battle phase.",
+      "label": "Can attack twice this turn's battle phase",
+      "minLevel": 5
+    },
+    {
+      "value": "increase this monster's attack by 1000 for 2 turns.",
+      "label": "Increase this monster's attack by 1000 for 2 turns",
+      "minLevel": 5
+    },
+    {
+      "value": "increase this monster's defense by 1000 for 2 turns.",
+      "label": "Increase this monster's defense by 1000 for 2 turns",
+      "minLevel": 5
+    },
+    {
+      "value": "reduce the attack of an opponent's faceup monster by 1000 during this turn's battle phase.",
+      "label": "Reduce attack of an opponent's faceup monster by 1000",
+      "minLevel": 5
+    },
+    {
+      "value": "reduce the defense of an opponent's faceup monster by 1000 during this turn's battle phase.",
+      "label": "Reduce defense of an opponent's faceup monster by 1000",
+      "minLevel": 5
+    },
+    {
+      "value": "select another monster you control and increase this monster's attack by 50% of the combined attack points for 2 turns.",
+      "label": "Increase ATK by 50% of combined ATK with another monster",
+      "minLevel": 8
+    },
+    {
+      "value": "this monster cannot be targeted by card effects for 2 turns after summon (including the turn it was summoned).",
+      "label": "Cannot be targeted by card effects for 2 turns after summon",
+      "minLevel": 8
+    },
+    {
+      "value": "this monster cannot be targeted by an attack for 2 turns after summon (including the turn it was summoned).",
+      "label": "Cannot be targeted by an attack for 2 turns after summon",
+      "minLevel": 8
+    },
+    {
+      "value": "special summon 1-2 level 4 or below monsters from hand/deck.",
+      "label": "Special summon 1-2 level 4 or below monsters from hand/deck",
+      "minLevel": 8
+    }
+  ]
+}

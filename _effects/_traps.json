@@ -1,0 +1,59 @@
+{
+  "effects": [
+    {
+      "value": "negate-attack",
+      "label": "Negate an attack from an opponent's monster",
+      "description": "Negate an attack from an opponent's monster."
+    },
+    {
+      "value": "negate-attack-damage",
+      "label": "Negate an attack then inflict damage equal to the negated attack points",
+      "description": "Negate an attack then inflict damage to the opponent's life points equal to the negated attack points."
+    },
+    {
+      "value": "destroy-on-summon",
+      "label": "Destroy monsters when opponent normal or special summons",
+      "description": "When the opponent normal or special summons a monster, select and destroy up to 2 monsters they control, aside from the summoned monster."
+    },
+    {
+      "value": "destroy-on-attack",
+      "label": "Destroy a monster when the opponent attacks",
+      "description": "When the opponent initiated an attack, select and destroy a monster they control, except the attacking monster."
+    },
+    {
+      "value": "destroy-weaker",
+      "label": "Destroy weaker monsters when opponent summons",
+      "description": "When the opponent summons a monster, destroy other monsters they control that have attack points lower than the summoned monster. If nothing exists, destroy the summoned monster instead."
+    },
+    {
+      "value": "negate-effect",
+      "label": "Negate a card effect from the opponent",
+      "description": "Negate a card effect from the opponent."
+    },
+    {
+      "value": "negate-effect-destroy",
+      "label": "Negate a card effect then destroy that card",
+      "description": "Negate a card effect from the opponent then destroy that card."
+    },
+    {
+      "value": "destroy-on-effect",
+      "label": "Destroy an opponent's monster when they use a card effect",
+      "description": "Destroy an opponent's monster when they use a card effect."
+    },
+    {
+      "value": "negate-summon",
+      "label": "Negate a summon and return it to hand or deck",
+      "description": "Negate a summon from the opponent then return it to their hand or deck."
+    },
+    {
+      "value": "boost-on-attack",
+      "label": "Increase a monster's attack or defense when attacked",
+      "description": "Increase the attack or defense of a monster you control by X when attacked by the opponent."
+    },
+    {
+      "value": "decrease-attacker",
+      "label": "Decrease the attacking monster's attack points",
+      "description": "When an opponent's monster attacked, decrease the attack points of the attacking monster by X."
+    }
+  ]
+}

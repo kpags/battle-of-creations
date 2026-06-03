@@ -1,0 +1,74 @@
+{
+  "effects": [
+    {
+      "value": "special-summon",
+      "label": "Special Summon Level 1 to 4 Monster",
+      "description": "Special summon a level 1 to 4 monster from hand."
+    },
+    {
+      "value": "draw",
+      "label": "Draw X Cards",
+      "description": "Draw X cards from the deck."
+    },
+    {
+      "value": "destroy-opponent-cards",
+      "label": "Destroy Opponent's Cards in the Field",
+      "description": "Select and destroy up to X cards in the opponent's field."
+    },
+    {
+      "value": "increase-stat",
+      "label": "Increase Attack or Defense of a Monster",
+      "description": "Increase the attack or defense of a selected monster by X."
+    },
+    {
+      "value": "destroy-opponent-monsters",
+      "label": "Destroy Opponent's Monsters in the Field",
+      "description": "Select and destroy up to X monsters in the opponent's field."
+    },
+    {
+      "value": "destroy-all-monsters",
+      "label": "Destroy All Opponent's Monsters in the Field",
+      "description": "Destroy all monsters in the opponent's field."
+    },
+    {
+      "value": "destroy-all-spell-trap",
+      "label": "Destroy All Opponent's Spell and Trap Cards",
+      "description": "Destroy all spell and trap cards in the opponent's field."
+    },
+    {
+      "value": "revive",
+      "label": "Revive a Monster from your Graveyard",
+      "description": "Revive a monster from your graveyard."
+    },
+    {
+      "value": "increase-lp",
+      "label": "Increase your Life Points",
+      "description": "Increase your life points by X."
+    },
+    {
+      "value": "decrease-lp",
+      "label": "Decrease Opponent's Life Points",
+      "description": "Decrease the opponent's life points by X."
+    },
+    {
+      "value": "return-graveyard",
+      "label": "Return Cards from your Graveyard to Deck/Hand",
+      "description": "Return a monster/spell/trap card from your graveyard to the deck or hand."
+    },
+    {
+      "value": "send-to-graveyard",
+      "label": "Send Cards from Opponent's Hand to Graveyard",
+      "description": "Send up to X cards from the opponent's hand to the graveyard."
+    },
+    {
+      "value": "restrict-monster",
+      "label": "Restrict Opponent's Monster from Attacking",
+      "description": "Select and restrict 1 opponent's monster from attacking for X turn(s)."
+    },
+    {
+      "value": "restrict-opponent",
+      "label": "Restrict Opponent from Attacking",
+      "description": "Restrict the opponent from attacking for X turn(s)."
+    }
+  ]
+}
