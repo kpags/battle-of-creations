@@ -3508,8 +3508,11 @@ if (lobbyEl) {
     hasNormalSummoned: false,
     hasDrawn: false,
     monstersAttackedThisTurn: new Set(),
+    monstersChangedModeThisTurn: new Set(),
+    resolvingBattle: false,
     defeatedOwner: null
   };
+  let duelDeckCards = [];
 
   // ── DOM references ────────────────────────────────────────
   const $ = (sel) => document.querySelector(sel);
@@ -3522,6 +3525,8 @@ if (lobbyEl) {
   const aiHandEl        = $("[data-ai-hand]");
   const playerDeckCount = $("[data-player-deck-count]");
   const aiDeckCount     = $("[data-ai-deck-count]");
+  const playerDeckPile  = $("[data-player-deck]");
+  const aiDeckPile      = $("[data-ai-deck]");
   const playerGYCount   = $("[data-player-gy-count]");
   const aiGYCount       = $("[data-ai-gy-count]");
   const playerGYSlot    = $("[data-player-gy]");
@@ -3543,6 +3548,11 @@ if (lobbyEl) {
   const drawPromptEl    = $("[data-draw-prompt]");
   const battleLogListEl = $("[data-battle-log-list]");
   const battleLogEmptyEl = $("[data-battle-log-empty]");
+  const resultOverlayEl = $("[data-result-overlay]");
+  const resultTitleEl   = $("[data-result-title]");
+  const resultSubtitleEl = $("[data-result-subtitle]");
+  const resultRematchBtn = $("[data-result-rematch]");
+  const resultExitBtn    = $("[data-result-exit]");
   // Card info pane
   const cardInfoEl      = $("[data-card-info]");
   const ciArtEl         = $("[data-ci-art]");
@@ -3599,8 +3609,20 @@ if (lobbyEl) {
     if (statusMsgEl) statusMsgEl.textContent = "";
   }
 
+  function resetBattleLog() {
+    if (!battleLogListEl) return;
+    battleLogListEl.innerHTML = "";
+    if (battleLogEmptyEl) {
+      battleLogEmptyEl.hidden = false;
+      battleLogListEl.appendChild(battleLogEmptyEl);
+    }
+  }
+
   // ── Render helpers ────────────────────────────────────────
   const MAX_LP = 8000;
+  const ATTACK_ARROW_MS = 1250;
+  const CARD_TRAVEL_MS = 680;
+  const CARD_SHATTER_MS = 640;
 
   function updateLP() {
     if (playerLpEl) playerLpEl.textContent = state.playerLP;
@@ -3626,6 +3648,186 @@ if (lobbyEl) {
     if (aiGYSlot)        aiGYSlot.classList.toggle("has-cards",     state.aiGY.length > 0);
   }
 
+  function ownerMonsterField(owner) {
+    return owner === "player" ? state.playerMonster : state.aiMonster;
+  }
+
+  function ownerGraveyard(owner) {
+    return owner === "player" ? state.playerGY : state.aiGY;
+  }
+
+  function ownerGraveyardSlot(owner) {
+    return owner === "player" ? playerGYSlot : aiGYSlot;
+  }
+
+  function ownerDeckPile(owner) {
+    return owner === "player" ? playerDeckPile : aiDeckPile;
+  }
+
+  function ownerHandEl(owner) {
+    return owner === "player" ? playerHandEl : aiHandEl;
+  }
+
+  function readRect(elOrRect) {
+    if (!elOrRect) return null;
+    if (typeof elOrRect.getBoundingClientRect === "function") {
+      const rect = elOrRect.getBoundingClientRect();
+      return {
+        left: rect.left,
+        top: rect.top,
+        width: rect.width,
+        height: rect.height
+      };
+    }
+    if (typeof elOrRect.left === "number" && typeof elOrRect.top === "number") {
+      return {
+        left: elOrRect.left,
+        top: elOrRect.top,
+        width: Number(elOrRect.width) || 0,
+        height: Number(elOrRect.height) || 0
+      };
+    }
+    return null;
+  }
+
+  function createCardGhost(card, fromRect, className = "", faceDown = false) {
+    const rect = readRect(fromRect);
+    if (!rect) return null;
+
+    const ghost = document.createElement("div");
+    ghost.className = `bf-card-ghost ${className}`.trim();
+    ghost.style.left = `${rect.left}px`;
+    ghost.style.top = `${rect.top}px`;
+    ghost.style.width = `${Math.max(1, rect.width)}px`;
+    ghost.style.height = `${Math.max(1, rect.height)}px`;
+
+    if (faceDown) {
+      const back = document.createElement("div");
+      back.className = "bf-card-ghost-back bf-card-back";
+      ghost.appendChild(back);
+    } else {
+      const face = document.createElement("div");
+      face.className = "bf-card-ghost-face";
+      face.appendChild(makeArtEl(card, "bf-card-ghost-art"));
+      ghost.appendChild(face);
+    }
+
+    document.body.appendChild(ghost);
+    return ghost;
+  }
+
+  async function animateCardMove(card, fromElOrRect, toElOrRect, className = "", options = {}) {
+    const fromRect = readRect(fromElOrRect);
+    const toRect = readRect(toElOrRect);
+    if (!card || !fromRect || !toRect) return;
+
+    const duration = options.duration || CARD_TRAVEL_MS;
+    const ghost = createCardGhost(card, fromRect, className, options.faceDown);
+    if (!ghost) return;
+
+    const fromX = fromRect.left + fromRect.width / 2;
+    const fromY = fromRect.top + fromRect.height / 2;
+    const toX = toRect.left + toRect.width / 2;
+    const toY = toRect.top + toRect.height / 2;
+    const scale = Math.min(1.08, Math.max(0.56, toRect.width / Math.max(1, fromRect.width)));
+
+    ghost.style.transitionDuration = `${duration}ms`;
+    requestAnimationFrame(() => {
+      ghost.style.transform = `translate(${toX - fromX}px, ${toY - fromY}px) scale(${scale})`;
+      ghost.style.opacity = "0";
+    });
+
+    await sleep(duration);
+    ghost.remove();
+  }
+
+  function animateDrawCard(owner, card) {
+    const handEl = ownerHandEl(owner);
+    const target = handEl?.lastElementChild || handEl;
+    animateCardMove(card, ownerDeckPile(owner), target, "is-draw", {
+      faceDown: owner === "ai"
+    });
+  }
+
+  function animatePlaceCard(card, fromElOrRect, toElOrRect, faceDown = false) {
+    const slot = typeof toElOrRect?.classList !== "undefined" ? toElOrRect : null;
+    if (slot) {
+      slot.classList.add("is-placing");
+      setTimeout(() => slot.classList.remove("is-placing"), CARD_TRAVEL_MS + 120);
+    }
+    animateCardMove(card, fromElOrRect, toElOrRect, "is-place", { faceDown });
+  }
+
+  function animateCardToGraveyard(card, fromElOrRect, owner) {
+    animateCardMove(card, fromElOrRect, ownerGraveyardSlot(owner), "is-to-graveyard");
+  }
+
+  async function animateCardShatter(card, slotEl) {
+    const rect = readRect(slotEl);
+    if (!card || !rect) return;
+
+    slotEl?.classList.add("is-breaking");
+    const shards = [];
+    const rows = 3;
+    const cols = 3;
+    for (let row = 0; row < rows; row++) {
+      for (let col = 0; col < cols; col++) {
+        const shard = createCardGhost(card, rect, "bf-card-shard");
+        if (!shard) continue;
+        const top = (row / rows) * 100;
+        const right = ((cols - col - 1) / cols) * 100;
+        const bottom = ((rows - row - 1) / rows) * 100;
+        const left = (col / cols) * 100;
+        const driftX = (col - 1) * 34 + (row % 2 ? 16 : -16);
+        const driftY = (row - 1) * 34 - 20;
+        const rotate = (row * 3 + col - 4) * 13;
+        shard.style.clipPath = `inset(${top}% ${right}% ${bottom}% ${left}%)`;
+        shard.style.setProperty("--shard-x", `${driftX}px`);
+        shard.style.setProperty("--shard-y", `${driftY}px`);
+        shard.style.setProperty("--shard-rot", `${rotate}deg`);
+        shards.push(shard);
+      }
+    }
+
+    requestAnimationFrame(() => {
+      shards.forEach((shard) => shard.classList.add("is-flying"));
+    });
+
+    await sleep(CARD_SHATTER_MS);
+    slotEl?.classList.remove("is-breaking");
+    shards.forEach((shard) => shard.remove());
+  }
+
+  async function sendMonsterToGraveyard(owner, slotIdx, options = {}) {
+    const field = ownerMonsterField(owner);
+    const card = field[slotIdx];
+    if (!card) return;
+
+    const slot = monsterSlots(owner)[slotIdx];
+    const fromRect = readRect(slot);
+    if (options.shatter) await animateCardShatter(card, slot);
+
+    ownerGraveyard(owner).push(card);
+    field[slotIdx] = null;
+    renderField();
+    updateCounts();
+    await animateCardMove(card, fromRect, ownerGraveyardSlot(owner), "is-to-graveyard");
+  }
+
+  function animateLifeChange(owner, delta) {
+    const bar = lifeBar(owner);
+    const rect = readRect(bar);
+    if (!rect || delta === 0) return;
+
+    const floatEl = document.createElement("div");
+    floatEl.className = `bf-lp-float ${delta > 0 ? "is-gain" : "is-loss"}`;
+    floatEl.textContent = `${delta > 0 ? "+" : "-"}${Math.abs(delta)}`;
+    floatEl.style.left = `${rect.left + rect.width / 2}px`;
+    floatEl.style.top = `${rect.top + rect.height / 2}px`;
+    document.body.appendChild(floatEl);
+    setTimeout(() => floatEl.remove(), 1050);
+  }
+
   function renderSlot(slotEl, card, faceDown) {
     slotEl.innerHTML = "";
     slotEl.classList.remove("is-defense");
@@ -3649,6 +3851,10 @@ if (lobbyEl) {
       face.classList.add("bf-flip-reveal");
       delete card._justFlipped;
     }
+    if (card._justModeChanged) {
+      face.classList.add("bf-mode-change");
+      delete card._justModeChanged;
+    }
 
     const artEl = makeArtEl(card, "bf-slot-face-art");
     face.appendChild(artEl);
@@ -3668,31 +3874,108 @@ if (lobbyEl) {
     slotEl.appendChild(face);
   }
 
+  function modeChangeKey(owner, slotIdx) {
+    return `${owner}:${slotIdx}`;
+  }
+
+  function clearModeChangesFor(owner) {
+    state.monstersChangedModeThisTurn = new Set(
+      Array.from(state.monstersChangedModeThisTurn).filter((key) => !key.startsWith(`${owner}:`))
+    );
+  }
+
+  function canChangeMonsterMode(owner, slotIdx) {
+    const card = ownerMonsterField(owner)[slotIdx];
+    if (!card || card._faceDown || cardTypeName(card) !== "monster") return false;
+    if (state.activePlayer !== owner) return false;
+    if (state.phase !== "main1" && state.phase !== "main2") return false;
+    if (state.resolvingBattle) return false;
+    return !state.monstersChangedModeThisTurn.has(modeChangeKey(owner, slotIdx));
+  }
+
+  function changeMonsterMode(owner, slotIdx, nextPosition = null, options = {}) {
+    if (!canChangeMonsterMode(owner, slotIdx)) return false;
+    const card = ownerMonsterField(owner)[slotIdx];
+    const position = nextPosition || (card._position === "defense" ? "attack" : "defense");
+    if (position !== "attack" && position !== "defense") return false;
+    if (card._position === position) return false;
+
+    card._position = position;
+    card._justModeChanged = true;
+    state.monstersChangedModeThisTurn.add(modeChangeKey(owner, slotIdx));
+
+    if (options.render !== false) renderField();
+    if (!options.silent) {
+      const label = position === "attack" ? "Attack" : "Defense";
+      showStatus(`${cardNameStr(card)} changed to ${label} Position.`, 1500);
+    }
+    return true;
+  }
+
+  function addModeControl(slotEl, slotIdx) {
+    const card = state.playerMonster[slotIdx];
+    if (!card || !canChangeMonsterMode("player", slotIdx)) return;
+
+    const control = document.createElement("div");
+    control.className = "bf-mode-toggle";
+
+    [["ATK", "attack"], ["DEF", "defense"]].forEach(([label, position]) => {
+      const btn = document.createElement("button");
+      btn.type = "button";
+      btn.className = "bf-mode-btn";
+      btn.textContent = label;
+      btn.setAttribute("aria-label", `Change ${cardNameStr(card)} to ${position} position`);
+      btn.setAttribute("aria-pressed", card._position === position ? "true" : "false");
+      if (card._position === position) btn.classList.add("is-current");
+      btn.addEventListener("click", (event) => {
+        event.preventDefault();
+        event.stopPropagation();
+        changeMonsterMode("player", slotIdx, position);
+      });
+      control.appendChild(btn);
+    });
+
+    slotEl.appendChild(control);
+  }
+
   function renderField() {
     const pmSlots = Array.from(playerMonZone.querySelectorAll(".bf-slot"));
     pmSlots.forEach((el, i) => {
+      el.onmouseenter = null;
+      el.onmouseleave = null;
       renderSlot(el, state.playerMonster[i], false);
+      addModeControl(el, i);
       if (state.playerMonster[i]) {
-        el.addEventListener("mouseenter", () => showCardInfo(state.playerMonster[i]));
-        el.addEventListener("mouseleave", clearCardInfo);
+        el.onmouseenter = () => {
+          if (state.playerMonster[i]) showCardInfo(state.playerMonster[i]);
+        };
+        el.onmouseleave = clearCardInfo;
       }
     });
 
     const psSlots = Array.from(playerSTZone.querySelectorAll(".bf-slot"));
     psSlots.forEach((el, i) => {
+      el.onmouseenter = null;
+      el.onmouseleave = null;
       renderSlot(el, state.playerSpellTrap[i], false);
       if (state.playerSpellTrap[i]) {
-        el.addEventListener("mouseenter", () => showCardInfo(state.playerSpellTrap[i]));
-        el.addEventListener("mouseleave", clearCardInfo);
+        el.onmouseenter = () => {
+          if (state.playerSpellTrap[i]) showCardInfo(state.playerSpellTrap[i]);
+        };
+        el.onmouseleave = clearCardInfo;
       }
     });
 
     const amSlots = Array.from(aiMonZone.querySelectorAll(".bf-slot"));
     amSlots.forEach((el, i) => {
+      el.onmouseenter = null;
+      el.onmouseleave = null;
       renderSlot(el, state.aiMonster[i], false);
       if (state.aiMonster[i]) {
-        el.addEventListener("mouseenter", () => showCardInfo(state.aiMonster[i]));
-        el.addEventListener("mouseleave", clearCardInfo);
+        el.onmouseenter = () => {
+          if (state.aiMonster[i]) showCardInfo(state.aiMonster[i]);
+        };
+        el.onmouseleave = clearCardInfo;
       }
     });
 
@@ -3755,6 +4038,7 @@ if (lobbyEl) {
     state.phase = phase;
     if (phase !== "battle") clearBattleSelection();
     renderPhases();
+    renderField();
     updateDrawPrompt();
     if (endTurnBtn) {
       const canEnd = state.activePlayer === "player" && phase !== "draw";
@@ -3775,12 +4059,16 @@ if (lobbyEl) {
   function drawCard(player) {
     if (player === "player") {
       if (!state.playerDeck.length) { endGame("AI wins — you ran out of cards!"); return false; }
-      state.playerHand.push(state.playerDeck.shift());
+      const card = state.playerDeck.shift();
+      state.playerHand.push(card);
       renderPlayerHand();
+      animateDrawCard("player", card);
     } else {
       if (!state.aiDeck.length) { endGame("You win — AI ran out of cards!"); return false; }
-      state.aiHand.push(state.aiDeck.shift());
+      const card = state.aiDeck.shift();
+      state.aiHand.push(card);
       renderAiHand();
+      animateDrawCard("ai", card);
     }
     updateCounts();
     return true;
@@ -3914,6 +4202,8 @@ if (lobbyEl) {
 
     const faceDown = action === "set-monster" || action === "set-spell" || action === "set-trap";
     const position = actionSummonPosition(action);
+    const handCardEl = playerHandEl?.querySelectorAll(".bf-hand-card")[state.selectedHandIdx];
+    const fromRect = readRect(handCardEl);
 
     const playedCard = { ...card, _faceDown: faceDown, _position: position };
     if (action === "set-monster") playedCard._setTurn = state.turn;
@@ -3926,6 +4216,8 @@ if (lobbyEl) {
     clearSlotHighlights();
     renderField();
     renderPlayerHand();
+    const zoneSlots = isMonsterZone ? monsterSlots("player") : Array.from(playerSTZone.querySelectorAll(".bf-slot"));
+    animatePlaceCard(playedCard, fromRect, zoneSlots[slotIdx], faceDown);
   }
 
   // ── Attach slot click listeners ─────────────────────────
@@ -3952,6 +4244,8 @@ if (lobbyEl) {
           attackWithMonster(i);
         } else if (!state.pendingAction && state.playerMonster[i]?._faceDown) {
           openFlipSummonMenu(i, slot);
+        } else if (!state.pendingAction && canChangeMonsterMode("player", i)) {
+          changeMonsterMode("player", i);
         } else {
           playToSlot(state.playerMonster, i, true);
         }
@@ -4062,11 +4356,11 @@ if (lobbyEl) {
   }
 
   function directAttackTarget(attackerOwner) {
-    return attackerOwner === "player" ? aiMonZone : playerMonZone;
+    return attackerOwner === "player" ? aiHandEl : playerHandEl;
   }
 
   function showAttackArrow(fromSlot, toSlot) {
-    if (!fromSlot || !toSlot) return;
+    if (!fromSlot || !toSlot) return Promise.resolve();
     const fromRect = fromSlot.getBoundingClientRect();
     const toRect = toSlot.getBoundingClientRect();
     const fromX = fromRect.left + fromRect.width / 2;
@@ -4092,7 +4386,9 @@ if (lobbyEl) {
       arrow.remove();
       fromSlot.classList.remove("is-attacking");
       toSlot.classList.remove("is-attack-target");
-    }, 900);
+    }, ATTACK_ARROW_MS);
+
+    return sleep(ATTACK_ARROW_MS);
   }
 
   function controllerName(owner) {
@@ -4104,13 +4400,16 @@ if (lobbyEl) {
   }
 
   function adjustLife(owner, amount) {
-    if (owner === "player") state.playerLP = Math.max(0, state.playerLP - amount);
-    else state.aiLP = Math.max(0, state.aiLP - amount);
+    if (amount === 0) return;
+    const before = owner === "player" ? state.playerLP : state.aiLP;
+    const after = Math.max(0, Math.min(MAX_LP, before - amount));
+    if (owner === "player") state.playerLP = after;
+    else state.aiLP = after;
     if (!state.defeatedOwner && amount > 0) {
-      const remaining = owner === "player" ? state.playerLP : state.aiLP;
-      if (remaining <= 0) state.defeatedOwner = owner;
+      if (after <= 0) state.defeatedOwner = owner;
     }
     updateLP();
+    animateLifeChange(owner, after - before);
     damageFlash(lifeBar(owner));
   }
 
@@ -4126,12 +4425,10 @@ if (lobbyEl) {
     return true;
   }
 
-  function resolveMonsterAttack(attackerOwner, attackerIdx, targetIdx = null) {
+  async function resolveMonsterAttack(attackerOwner, attackerIdx, targetIdx = null) {
     const defenderOwner = attackerOwner === "player" ? "ai" : "player";
     const attackerField = attackerOwner === "player" ? state.playerMonster : state.aiMonster;
     const defenderField = defenderOwner === "player" ? state.playerMonster : state.aiMonster;
-    const attackerGY = attackerOwner === "player" ? state.playerGY : state.aiGY;
-    const defenderGY = defenderOwner === "player" ? state.playerGY : state.aiGY;
     const attacker = attackerField[attackerIdx];
     if (!attacker) return false;
 
@@ -4144,9 +4441,8 @@ if (lobbyEl) {
       if (defender._position === "defense") {
         const def = cardDef(defender);
         if (atk > def) {
-          defenderGY.push(defenderField[targetIdx]);
-          defenderField[targetIdx] = null;
           showStatus(`${cardNameStr(attacker)} destroys ${cardNameStr(defender)}! (No damage in defense mode)`);
+          await sendMonsterToGraveyard(defenderOwner, targetIdx, { shatter: true });
         } else if (atk === def) {
           showStatus("Attack equals defense - no cards destroyed, no damage!");
         } else {
@@ -4159,21 +4455,19 @@ if (lobbyEl) {
         if (atk > defenderAtk) {
           const damage = atk - defenderAtk;
           adjustLife(defenderOwner, damage);
-          defenderGY.push(defenderField[targetIdx]);
-          defenderField[targetIdx] = null;
           showStatus(`${cardNameStr(attacker)} destroys ${cardNameStr(defender)}! ${controllerName(defenderOwner)} take${defenderOwner === "player" ? "" : "s"} ${damage} damage!`);
+          await sendMonsterToGraveyard(defenderOwner, targetIdx, { shatter: true });
         } else if (atk < defenderAtk) {
           const damage = defenderAtk - atk;
           adjustLife(attackerOwner, damage);
-          attackerGY.push(attackerField[attackerIdx]);
-          attackerField[attackerIdx] = null;
           showStatus(`${cardNameStr(defender)} destroys ${cardNameStr(attacker)}! ${controllerName(attackerOwner)} take${attackerOwner === "player" ? "" : "s"} ${damage} damage!`);
+          await sendMonsterToGraveyard(attackerOwner, attackerIdx, { shatter: true });
         } else {
-          defenderGY.push(defenderField[targetIdx]);
-          attackerGY.push(attackerField[attackerIdx]);
-          defenderField[targetIdx] = null;
-          attackerField[attackerIdx] = null;
           showStatus("Both monsters are destroyed! No damage.");
+          await Promise.all([
+            sendMonsterToGraveyard(defenderOwner, targetIdx, { shatter: true }),
+            sendMonsterToGraveyard(attackerOwner, attackerIdx, { shatter: true })
+          ]);
         }
       }
     } else {
@@ -4199,8 +4493,9 @@ if (lobbyEl) {
     });
   }
 
-  function attackSelectedTarget(targetIdx) {
+  async function attackSelectedTarget(targetIdx) {
     if (state.activePlayer !== "player" || state.phase !== "battle") return;
+    if (state.resolvingBattle) return;
     if (state.selectedAttackIdx === null) {
       showStatus("Select one of your attacking monsters first");
       return;
@@ -4212,11 +4507,17 @@ if (lobbyEl) {
 
     const attackerIdx = state.selectedAttackIdx;
     clearBattleSelection();
-    showAttackArrow(monsterSlots("player")[attackerIdx], monsterSlots("ai")[targetIdx]);
-    resolveMonsterAttack("player", attackerIdx, targetIdx);
+    state.resolvingBattle = true;
+    try {
+      await showAttackArrow(monsterSlots("player")[attackerIdx], monsterSlots("ai")[targetIdx]);
+      await resolveMonsterAttack("player", attackerIdx, targetIdx);
+    } finally {
+      state.resolvingBattle = false;
+    }
   }
 
-  function attackWithMonster(slotIdx) {
+  async function attackWithMonster(slotIdx) {
+    if (state.resolvingBattle) return;
     const attacker = state.playerMonster[slotIdx];
     if (!attacker) { showStatus("No monster in that slot"); return; }
     if (attacker._position === "defense") { showStatus("Monsters in defense position cannot attack"); return; }
@@ -4224,9 +4525,14 @@ if (lobbyEl) {
 
     const hasTargets = state.aiMonster.some((monster) => monster !== null);
     if (!hasTargets) {
-      showAttackArrow(monsterSlots("player")[slotIdx], directAttackTarget("player"));
       clearBattleSelection();
-      resolveMonsterAttack("player", slotIdx, null);
+      state.resolvingBattle = true;
+      try {
+        await showAttackArrow(monsterSlots("player")[slotIdx], directAttackTarget("player"));
+        await resolveMonsterAttack("player", slotIdx, null);
+      } finally {
+        state.resolvingBattle = false;
+      }
       return;
     }
 
@@ -4254,6 +4560,10 @@ if (lobbyEl) {
   // ── Card info pane ─────────────────────────────
   function showCardInfo(card) {
     if (!cardInfoEl) return;
+    if (!card) {
+      clearCardInfo();
+      return;
+    }
     cardInfoEl.classList.add("has-card");
 
     // Art
@@ -4501,10 +4811,14 @@ if (lobbyEl) {
     const inMain = state.phase === "main1" || state.phase === "main2";
 
     if (action === "to-gy") {
-      state.playerGY.push(state.playerHand.splice(handIdx, 1)[0]);
+      const handCardEl = playerHandEl?.querySelectorAll(".bf-hand-card")[handIdx];
+      const fromRect = readRect(handCardEl);
+      const [sentCard] = state.playerHand.splice(handIdx, 1);
+      state.playerGY.push(sentCard);
       state.selectedHandIdx = null; state.pendingAction = null;
       clearSlotHighlights(); clearCardInfo();
       renderPlayerHand(); updateCounts();
+      animateCardToGraveyard(sentCard, fromRect, "player");
       return;
     }
     if (action === "to-deck-top") {
@@ -4549,6 +4863,13 @@ if (lobbyEl) {
 
   function completeTribute() {
     // Remove tributed monsters, send to GY
+    const tributes = state.tributesSelected
+      .map((i) => ({
+        card: state.playerMonster[i],
+        rect: readRect(monsterSlots("player")[i])
+      }))
+      .filter((entry) => entry.card);
+
     state.tributesSelected.forEach(i => {
       state.playerGY.push(state.playerMonster[i]);
       state.playerMonster[i] = null;
@@ -4563,6 +4884,7 @@ if (lobbyEl) {
     highlightAvailableSlots(card, "monster");
     showStatus("Tribute complete — choose an empty slot to summon");
     renderPlayerHand();
+    tributes.forEach(({ card, rect }) => animateCardToGraveyard(card, rect, "player"));
   }
 
   // ── Phase button clicks ─────────────────────────────────
@@ -4641,6 +4963,7 @@ if (lobbyEl) {
   function endPlayerTurn() {
     state.activePlayer = "ai";
     state.hasNormalSummoned = false;
+    clearModeChangesFor("ai");
     state.tributesPending = 0;
     state.tributesSelected = [];
     closeHandMenu();
@@ -4687,10 +5010,17 @@ if (lobbyEl) {
     if (tributeIndices.length < required) return false;
 
     const tributeNames = tributeIndices.map((index) => cardNameStr(state.aiMonster[index]));
+    const tributes = tributeIndices.map((index) => ({
+      card: state.aiMonster[index],
+      rect: readRect(monsterSlots("ai")[index])
+    }));
+    const fromRect = readRect(aiHandEl?.querySelectorAll(".bf-ai-hand-card")[handIdx]);
+
     tributeIndices.forEach((index) => {
       state.aiGY.push(state.aiMonster[index]);
       state.aiMonster[index] = null;
     });
+    tributes.forEach(({ card, rect }) => animateCardToGraveyard(card, rect, "ai"));
 
     const emptyMon = state.aiMonster.indexOf(null);
     if (emptyMon < 0) return false;
@@ -4699,6 +5029,9 @@ if (lobbyEl) {
     const position = chooseAiSummonPosition(summonedCard);
     state.aiMonster[emptyMon] = { ...summonedCard, _faceDown: false, _position: position };
     state.hasNormalSummoned = true;
+    requestAnimationFrame(() => {
+      animatePlaceCard(state.aiMonster[emptyMon], fromRect, monsterSlots("ai")[emptyMon], false);
+    });
     const positionLabel = position === "attack" ? "Attack" : "Defense";
 
     if (required > 0) {
@@ -4709,28 +5042,107 @@ if (lobbyEl) {
     return true;
   }
 
+  function changeAiMonsterModes() {
+    let changed = 0;
+    state.aiMonster.forEach((card, index) => {
+      if (!card || !canChangeMonsterMode("ai", index)) return;
+      const preferred = cardDef(card) > cardAtk(card) ? "defense" : "attack";
+      if (card._position === preferred) return;
+      card._position = preferred;
+      card._justModeChanged = true;
+      state.monstersChangedModeThisTurn.add(modeChangeKey("ai", index));
+      changed++;
+    });
+
+    if (changed) {
+      renderField();
+      showStatus(`AI changed ${changed} monster${changed > 1 ? "s" : ""} to a better battle position.`, 1300);
+    }
+    return changed;
+  }
+
   function targetBattleValue(card) {
     if (card._faceDown || card._position === "defense") return cardDef(card);
     return cardAtk(card);
   }
 
-  function chooseAiAttackTarget(attacker) {
+  function aiMonsterValue(card) {
+    return Math.max(cardAtk(card), cardDef(card));
+  }
+
+  function evaluateAiAttackTarget(attacker, target, targetIdx) {
     const atk = cardAtk(attacker);
+    const targetValue = targetBattleValue(target);
+    const targetPower = aiMonsterValue(target);
+    const attackerPower = aiMonsterValue(attacker);
+    const targetInDefense = target._faceDown || target._position === "defense";
+
+    if (targetInDefense) {
+      if (atk > targetValue) {
+        return {
+          type: "monster",
+          targetIdx,
+          score: 1200 + targetPower + Math.floor((atk - targetValue) / 3),
+          reason: "destroy-defense"
+        };
+      }
+      return {
+        type: "skip",
+        targetIdx,
+        score: -900 - Math.max(0, targetValue - atk),
+        reason: atk < targetValue ? "defense-damage-risk" : "no-defense-gain"
+      };
+    }
+
+    if (atk > targetValue) {
+      const damage = atk - targetValue;
+      return {
+        type: "monster",
+        targetIdx,
+        score: 1800 + targetPower + damage,
+        reason: "destroy-attack",
+        damage
+      };
+    }
+
+    if (atk === targetValue) {
+      const tradeScore = targetPower - attackerPower;
+      return {
+        type: tradeScore > 250 ? "monster" : "skip",
+        targetIdx,
+        score: tradeScore > 250 ? 550 + tradeScore : -120,
+        reason: tradeScore > 250 ? "valuable-trade" : "poor-trade"
+      };
+    }
+
+    return {
+      type: "skip",
+      targetIdx,
+      score: -1400 - (targetValue - atk),
+      reason: "losing-attack"
+    };
+  }
+
+  function chooseAiAttackAction(attacker, attackerIdx) {
+    const atk = cardAtk(attacker);
+    if (!attacker || attacker._faceDown || attacker._position === "defense" || atk <= 0) {
+      return { type: "skip", reason: "cannot-attack" };
+    }
+
     const targets = state.playerMonster
       .map((card, index) => ({ card, index }))
       .filter((entry) => entry.card);
-    if (!targets.length) return null;
+    if (!targets.length) {
+      return { type: "direct", targetIdx: null, score: 1000 + atk, reason: "open-field" };
+    }
 
-    targets.sort((a, b) => {
-      const aValue = targetBattleValue(a.card);
-      const bValue = targetBattleValue(b.card);
-      const aCanDestroy = atk > aValue ? 1 : 0;
-      const bCanDestroy = atk > bValue ? 1 : 0;
-      if (aCanDestroy !== bCanDestroy) return bCanDestroy - aCanDestroy;
-      return aValue - bValue;
-    });
+    const choices = targets
+      .map((entry) => evaluateAiAttackTarget(attacker, entry.card, entry.index))
+      .sort((a, b) => b.score - a.score);
+    const best = choices[0];
 
-    return targets[0].index;
+    if (best && best.type === "monster" && best.score > 0) return best;
+    return { type: "skip", reason: "no-favorable-target", attackerIdx };
   }
 
   async function doAiTurn() {
@@ -4754,8 +5166,12 @@ if (lobbyEl) {
         played = aiNormalSummon(monIdx);
       }
       if (!played && stIdx >= 0 && emptyST >= 0) {
+        const fromRect = readRect(aiHandEl?.querySelectorAll(".bf-ai-hand-card")[stIdx]);
         const [card] = state.aiHand.splice(stIdx, 1);
         state.aiSpellTrap[emptyST] = { ...card };
+        requestAnimationFrame(() => {
+          animatePlaceCard(state.aiSpellTrap[emptyST], fromRect, Array.from(aiSTZone.querySelectorAll(".bf-slot"))[emptyST], true);
+        });
         showStatus("AI sets a card face-down.", 1400);
         played = true;
       }
@@ -4768,6 +5184,10 @@ if (lobbyEl) {
       }
     }
 
+    if (changeAiMonsterModes()) {
+      await sleep(1100);
+    }
+
     // Battle Phase
     setPhase("battle");
     await sleep(1200);
@@ -4777,13 +5197,20 @@ if (lobbyEl) {
       if (!attacker) continue;
       if (attacker._position === "defense") continue; // defense monsters don't attack
 
-      const chosenTargetIdx = chooseAiAttackTarget(attacker);
-      showAttackArrow(
+      const attackAction = chooseAiAttackAction(attacker, i);
+      if (attackAction.type === "skip") {
+        if (attackAction.reason === "no-favorable-target") {
+          showStatus(`AI keeps ${cardNameStr(attacker)} from making a risky attack.`, 1200);
+          await sleep(800);
+        }
+        continue;
+      }
+      const chosenTargetIdx = attackAction.type === "direct" ? null : attackAction.targetIdx;
+      await showAttackArrow(
         monsterSlots("ai")[i],
-        chosenTargetIdx === null ? directAttackTarget("ai") : monsterSlots("player")[chosenTargetIdx]
+        attackAction.type === "direct" ? directAttackTarget("ai") : monsterSlots("player")[chosenTargetIdx]
       );
-      await sleep(960);
-      if (resolveMonsterAttack("ai", i, chosenTargetIdx)) return;
+      if (await resolveMonsterAttack("ai", i, chosenTargetIdx)) return;
       await sleep(1400);
       continue;
 
@@ -4879,19 +5306,94 @@ if (lobbyEl) {
     state.hasNormalSummoned = false;
     state.hasDrawn = false;
     state.monstersAttackedThisTurn.clear();
+    clearModeChangesFor("player");
 
     // Give control back — player clicks the deck prompt to draw
     setPhase("draw");   // updateDrawPrompt() fires inside setPhase; endTurnBtn disabled here too
   }
 
   // ── End game ─────────────────────────────────────────────
+  function showResultOverlay(msg) {
+    if (!resultOverlayEl) return;
+    const playerWon = state.defeatedOwner === "ai" || /\byou win\b|\bvictory\b/i.test(String(msg || ""));
+    resultOverlayEl.classList.toggle("is-victory", playerWon);
+    resultOverlayEl.classList.toggle("is-defeat", !playerWon);
+    if (resultTitleEl) resultTitleEl.textContent = playerWon ? "VICTORY" : "DEFEAT";
+    if (resultSubtitleEl) resultSubtitleEl.textContent = String(msg || "").replace(/\s*[-—]\s*Refresh to play again\.?$/i, "");
+    resultOverlayEl.hidden = false;
+    window.setTimeout(() => resultRematchBtn?.focus(), 80);
+  }
+
   function endGame(msg) {
     state.activePlayer = "none";
     state.phase = "end";
     renderPhases();
     if (endTurnBtn) endTurnBtn.disabled = true;
-    showStatus(`${msg} — Refresh to play again`, 60000);
+    showStatus(msg, 60000);
+    showResultOverlay(msg);
   }
+
+  function startDuel(deckCards = duelDeckCards, options = {}) {
+    const cards = Array.isArray(deckCards) ? deckCards.filter(Boolean) : [];
+    if (!cards.length) return false;
+
+    duelDeckCards = [...cards];
+    closeHandMenu();
+    closeGraveyardDialog();
+    clearSlotHighlights();
+    clearCardInfo();
+    resetBattleLog();
+    if (resultOverlayEl) resultOverlayEl.hidden = true;
+
+    state.turn = 1;
+    state.activePlayer = "player";
+    state.phase = "draw";
+    state.playerLP = MAX_LP;
+    state.aiLP = MAX_LP;
+    state.playerHand = [];
+    state.aiHand = [];
+    state.playerDeck = shuffle([...duelDeckCards]);
+    state.aiDeck = shuffle([...duelDeckCards]);
+    state.playerGY = [];
+    state.aiGY = [];
+    state.playerMonster = [null, null, null, null, null];
+    state.playerSpellTrap = [null, null, null, null, null];
+    state.aiMonster = [null, null, null, null, null];
+    state.aiSpellTrap = [null, null, null, null, null];
+    state.selectedHandIdx = null;
+    state.pendingAction = null;
+    state.selectedAttackIdx = null;
+    state.tributesPending = 0;
+    state.tributesSelected = [];
+    state.hasNormalSummoned = false;
+    state.hasDrawn = false;
+    state.monstersAttackedThisTurn = new Set();
+    state.monstersChangedModeThisTurn = new Set();
+    state.resolvingBattle = false;
+    state.defeatedOwner = null;
+
+    const handSize = Math.min(5, Math.floor(state.playerDeck.length / 2));
+    for (let i = 0; i < handSize; i++) state.playerHand.push(state.playerDeck.shift());
+    for (let i = 0; i < handSize; i++) state.aiHand.push(state.aiDeck.shift());
+
+    updateLP();
+    updateCounts();
+    renderPlayerHand();
+    renderAiHand();
+    renderField();
+    setPhase("draw");
+
+    if (options.announce) showStatus("Rematch started - draw a card.", 1800);
+    return true;
+  }
+
+  resultRematchBtn?.addEventListener("click", () => {
+    startDuel(duelDeckCards, { announce: true });
+  });
+
+  resultExitBtn?.addEventListener("click", () => {
+    window.location.href = "home.html";
+  });
 
   // ── Initialise ───────────────────────────────────────────
   async function init() {
@@ -4931,21 +5433,8 @@ if (lobbyEl) {
       return;
     }
 
-    state.playerDeck = shuffle([...deckCards]);
-    state.aiDeck     = shuffle([...deckCards]);   // AI uses same card pool, different shuffle
-
-    // Opening hand (up to 5 cards)
-    const handSize = Math.min(5, Math.floor(state.playerDeck.length / 2));
-    for (let i = 0; i < handSize; i++) state.playerHand.push(state.playerDeck.shift());
-    for (let i = 0; i < handSize; i++) state.aiHand.push(state.aiDeck.shift());
-
-    updateLP();
-    updateCounts();
-    renderPlayerHand();
-    renderAiHand();
-    renderField();
+    startDuel(deckCards);
     attachSlotListeners();
-    setPhase("draw");
   }
 
   init();

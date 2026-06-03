@@ -33,6 +33,15 @@ Original prompt: Add a server side for user account so it is secured
 - Verified Deck Details vs Selected Card widths in Playwright at 1900px, 1400px, 1100px, 900px, 800px, 703px, and 480px; width delta was 0px or within rounding and no horizontal overflow was detected.
 - Selected Card details now omit the separate Effect row and show only Effect Description, with the displayed description's first letter capitalized.
 - Verified with Playwright that the selected-card table has no Effect row and displays `Special summon...` with an uppercase first letter.
+- Battlefield turn controls now let each side change each face-up monster's Attack/Defense position once during its own Main Phase; the AI uses the same rule before Battle Phase.
+- Battle now shows a centered Victory/Defeat overlay, aligns the turn badge to the battlefield column, extends direct-attack arrows to the opponent hand area, and uses a slower attack-arrow cadence.
+- Added battlefield animations for drawing, placing cards, sending cards to the graveyard, monster shatter before battle destruction, and life point changes.
+- Verified with a Playwright battle harness that mode changing works, turn alignment stays within 1.6px at 1440px and 0.9px at 800px, direct attack arrows reach the AI hand center, LP loss animates, Victory appears, and destroyed monsters shatter before both graveyards update.
+- AI battle targeting now scores attacks against attack-position ATK and defense/face-down DEF, skips unfavorable attacks, and only direct-attacks when the opponent has no monsters.
+- Victory/Defeat overlay now includes Rematch and Exit actions; Rematch resets the duel state with the loaded deck pool, while Exit returns to `home.html`.
+- Replaced stacked battlefield hover listeners with guarded per-render handlers so rematch resets cannot leave old slot listeners pointing at null cards.
+- Verified with Playwright harnesses that the AI skips a risky 1000 ATK into a 3000 ATK target, attacks and destroys a 1000 ATK target with a 3000 ATK monster for 2000 damage, Victory shows Rematch/Exit, Rematch resets turn/LP/GY/draw prompt, and Exit navigates to `home.html`.
+- Ran the stock `web_game_playwright_client.js`; it reached the login page because `battle.html` requires an authenticated `/api/session`, so authenticated duel checks used the mocked API harness instead.
 
 ## TODO
 
