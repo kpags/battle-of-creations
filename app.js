@@ -1875,7 +1875,7 @@ if (deckCreatorEl) {
   // ---- Type filter + quick buttons ----
   dcTypeFilter?.addEventListener("change", () => { dcCollectionPage = 1; dcRenderCollection(); });
   deckCreatorEl.querySelectorAll("[data-dc-type-quick]").forEach((btn) => {
-    btn.addEventListener("click", () => {
+    btn.addEventListener("click", async () => {
       const val = btn.dataset.dcTypeQuick;
       if (dcTypeFilter) {
         dcTypeFilter.value = dcTypeFilter.value === val ? "all" : val;
@@ -3444,6 +3444,24 @@ if (lobbyEl) {
   function cardDef(card) { return Number(card.defensePoints ?? card.defense ?? 0); }
   function cardLevel(card) { return Number(card.level) || 1; }
   function cardNameStr(card) { return String(card.cardName || "Unnamed"); }
+  function duelCardId(card) {
+    if (!card) return "";
+    if (!card._duelUid) card._duelUid = createId("duel-card");
+    return card._duelUid;
+  }
+  function sameDuelCard(a, b) {
+    return Boolean(a && b && duelCardId(a) === duelCardId(b));
+  }
+  function createDuelCard(card) {
+    return {
+      ...card,
+      effectParams: { ...(card?.effectParams || {}) },
+      spellEffectParams: { ...(card?.spellEffectParams || {}) },
+      trapEffectParams: { ...(card?.trapEffectParams || {}) },
+      imagePosition: { ...(card?.imagePosition || {}) },
+      _duelUid: createId("duel-card")
+    };
+  }
   function tributeRequirement(card) {
     const level = cardLevel(card);
     if (level >= 8) return 2;
@@ -3510,8 +3528,12 @@ if (lobbyEl) {
     hasNormalSummoned: false,
     hasDrawn: false,
     monstersAttackedThisTurn: new Set(),
+    monsterAttackCountsThisTurn: new Map(),
     monstersChangedModeThisTurn: new Set(),
+    effectMonsterUsesThisTurn: new Set(),
+    effectMonsterUsesEver: new Set(),
     aiBattleRestrictedUntilTurn: 0,
+    resolvingEffectMonster: false,
     resolvingTrap: false,
     resolvingBattle: false,
     defeatedOwner: null
@@ -3886,6 +3908,17 @@ if (lobbyEl) {
       ownerGraveyard(owner).push(card);
       renderField();
       updateCounts();
+      if (options.destroyerOwner && !options.suppressEffectMonsterDestroy) {
+        await triggerEffectMonsterResponses({
+          type: "destroyed",
+          destroyedOwner: owner,
+          destroyedZone: "monster",
+          destroyedCard: card,
+          destroyerOwner: options.destroyerOwner,
+          sourceCard: options.sourceCard || null
+        }, { owner });
+        await notifyCardsDestroyedBy(options.destroyerOwner, [{ owner, zone: "monster", card }], options.sourceCard || null);
+      }
       return;
     }
 
@@ -3894,6 +3927,17 @@ if (lobbyEl) {
     renderField();
     updateCounts();
     await animateCardMove(card, fromRect, ownerGraveyardSlot(owner), "is-to-graveyard", { faceDown });
+    if (options.destroyerOwner && !options.suppressEffectMonsterDestroy) {
+      await triggerEffectMonsterResponses({
+        type: "destroyed",
+        destroyedOwner: owner,
+        destroyedZone: "monster",
+        destroyedCard: card,
+        destroyerOwner: options.destroyerOwner,
+        sourceCard: options.sourceCard || null
+      }, { owner });
+      await notifyCardsDestroyedBy(options.destroyerOwner, [{ owner, zone: "monster", card }], options.sourceCard || null);
+    }
   }
 
   async function sendFieldCardToGraveyard(owner, zone, slotIdx, options = {}) {
@@ -3910,6 +3954,17 @@ if (lobbyEl) {
       ownerGraveyard(owner).push(card);
       renderField();
       updateCounts();
+      if (options.destroyerOwner && !options.suppressEffectMonsterDestroy) {
+        await triggerEffectMonsterResponses({
+          type: "destroyed",
+          destroyedOwner: owner,
+          destroyedZone: zone,
+          destroyedCard: card,
+          destroyerOwner: options.destroyerOwner,
+          sourceCard: options.sourceCard || null
+        }, { owner });
+        await notifyCardsDestroyedBy(options.destroyerOwner, [{ owner, zone, card }], options.sourceCard || null);
+      }
       return;
     }
 
@@ -3920,6 +3975,17 @@ if (lobbyEl) {
     await animateCardMove(card, fromRect, ownerGraveyardSlot(owner), "is-to-graveyard", {
       faceDown
     });
+    if (options.destroyerOwner && !options.suppressEffectMonsterDestroy) {
+      await triggerEffectMonsterResponses({
+        type: "destroyed",
+        destroyedOwner: owner,
+        destroyedZone: zone,
+        destroyedCard: card,
+        destroyerOwner: options.destroyerOwner,
+        sourceCard: options.sourceCard || null
+      }, { owner });
+      await notifyCardsDestroyedBy(options.destroyerOwner, [{ owner, zone, card }], options.sourceCard || null);
+    }
   }
 
   function destroyFieldCardToGraveyard(owner, zone, slotIdx, options = {}) {
@@ -4071,6 +4137,86 @@ if (lobbyEl) {
     return true;
   }
 
+  function attackCountKey(owner, slotIdx) {
+    return `${owner}:${slotIdx}`;
+  }
+
+  function monsterAttackLimit(owner, slotIdx) {
+    const card = ownerMonsterField(owner)[slotIdx];
+    if (!card) return 1;
+    return Number(card._doubleAttackUntilTurn || 0) >= state.turn ? 2 : 1;
+  }
+
+  function monsterAttackCount(owner, slotIdx) {
+    return Number(state.monsterAttackCountsThisTurn.get(attackCountKey(owner, slotIdx)) || 0);
+  }
+
+  function hasMonsterFinishedAttacking(owner, slotIdx) {
+    return monsterAttackCount(owner, slotIdx) >= monsterAttackLimit(owner, slotIdx);
+  }
+
+  function markMonsterAttacked(owner, slotIdx) {
+    const key = attackCountKey(owner, slotIdx);
+    const nextCount = monsterAttackCount(owner, slotIdx) + 1;
+    state.monsterAttackCountsThisTurn.set(key, nextCount);
+    if (owner === "player" && nextCount >= monsterAttackLimit(owner, slotIdx)) {
+      state.monstersAttackedThisTurn.add(slotIdx);
+    }
+  }
+
+  function addTemporaryStatEffect(card, stat, amount, untilTurn, options = {}) {
+    if (!card || !amount) return;
+    if (stat === "defense") card.defensePoints = Math.max(0, cardDef(card) + amount);
+    else card.attackPoints = Math.max(0, cardAtk(card) + amount);
+    card._temporaryStatEffects = Array.isArray(card._temporaryStatEffects) ? card._temporaryStatEffects : [];
+    card._temporaryStatEffects.push({
+      stat: stat === "defense" ? "defense" : "attack",
+      amount,
+      untilTurn,
+      battleOnly: Boolean(options.battleOnly)
+    });
+    card._justModeChanged = true;
+  }
+
+  function expireTemporaryMonsterEffects(options = {}) {
+    const battleOnly = Boolean(options.battleOnly);
+    ["player", "ai"].forEach((owner) => {
+      ownerMonsterField(owner).forEach((card) => {
+        if (!card) return;
+        if (Number(card._doubleAttackUntilTurn || 0) < state.turn) delete card._doubleAttackUntilTurn;
+        ["_effectTargetImmuneUntilTurn", "_attackTargetImmuneUntilTurn"].forEach((key) => {
+          if (Number(card[key] || 0) < state.turn) delete card[key];
+        });
+        const effects = Array.isArray(card._temporaryStatEffects) ? card._temporaryStatEffects : [];
+        const remaining = [];
+        effects.forEach((effect) => {
+          const expired = battleOnly ? effect.battleOnly : Number(effect.untilTurn || 0) < state.turn;
+          if (expired) {
+            const amount = Number(effect.amount || 0);
+            if (effect.stat === "defense") card.defensePoints = Math.max(0, cardDef(card) - amount);
+            else card.attackPoints = Math.max(0, cardAtk(card) - amount);
+          } else {
+            remaining.push(effect);
+          }
+        });
+        if (remaining.length) card._temporaryStatEffects = remaining;
+        else delete card._temporaryStatEffects;
+      });
+    });
+  }
+
+  function isProtectedFromEffectTarget(owner, zone, index, sourceOwner) {
+    if (zone !== "monster" || owner === sourceOwner) return false;
+    const card = ownerMonsterField(owner)[index];
+    return Boolean(card && Number(card._effectTargetImmuneUntilTurn || 0) >= state.turn);
+  }
+
+  function isProtectedFromAttackTarget(owner, index, attackerOwner) {
+    if (owner === attackerOwner) return false;
+    const card = ownerMonsterField(owner)[index];
+    return Boolean(card && Number(card._attackTargetImmuneUntilTurn || 0) >= state.turn);
+  }
+
   function addModeControl(slotEl, slotIdx) {
     const card = state.playerMonster[slotIdx];
     if (!card || !canChangeMonsterMode("player", slotIdx)) return;
@@ -4105,7 +4251,7 @@ if (lobbyEl) {
       state.phase === "battle" &&
       !card._faceDown &&
       card._position !== "defense" &&
-      !state.monstersAttackedThisTurn.has(slotIdx)
+      !hasMonsterFinishedAttacking("player", slotIdx)
     );
   }
 
@@ -4215,6 +4361,10 @@ if (lobbyEl) {
   }
 
   function setPhase(phase) {
+    const previousPhase = state.phase;
+    if (previousPhase === "battle" && phase !== "battle") {
+      expireTemporaryMonsterEffects({ battleOnly: true });
+    }
     state.phase = phase;
     if (phase !== "battle") clearBattleSelection();
     renderPhases();
@@ -4236,21 +4386,23 @@ if (lobbyEl) {
   }
 
   // ── Draw ────────────────────────────────────────────────
-  function drawCard(player) {
+  async function drawCard(player) {
+    let drawnCard = null;
     if (player === "player") {
       if (!state.playerDeck.length) { endGame("AI wins — you ran out of cards!"); return false; }
-      const card = state.playerDeck.shift();
-      state.playerHand.push(card);
+      drawnCard = state.playerDeck.shift();
+      state.playerHand.push(drawnCard);
       renderPlayerHand();
-      animateDrawCard("player", card);
+      await animateDrawCard("player", drawnCard);
     } else {
       if (!state.aiDeck.length) { endGame("You win — AI ran out of cards!"); return false; }
-      const card = state.aiDeck.shift();
-      state.aiHand.push(card);
+      drawnCard = state.aiDeck.shift();
+      state.aiHand.push(drawnCard);
       renderAiHand();
-      animateDrawCard("ai", card);
+      await animateDrawCard("ai", drawnCard);
     }
     updateCounts();
+    await triggerEffectMonsterResponses({ type: "draw", owner: player, card: drawnCard }, { owner: player });
     return true;
   }
 
@@ -4263,6 +4415,7 @@ if (lobbyEl) {
       renderPlayerHand();
       updateCounts();
       await animateDrawCard("player", card);
+      await triggerEffectMonsterResponses({ type: "draw", owner: "player", card }, { owner: "player" });
       return true;
     }
 
@@ -4272,6 +4425,7 @@ if (lobbyEl) {
     renderAiHand();
     updateCounts();
     await animateDrawCard("ai", card);
+    await triggerEffectMonsterResponses({ type: "draw", owner: "ai", card }, { owner: "ai" });
     return true;
   }
 
@@ -4305,7 +4459,7 @@ if (lobbyEl) {
   }
 
   function isSpellResolutionBusy() {
-    return Boolean(state.resolvingSpell || state.pendingSpell || state.resolvingTrap);
+    return Boolean(state.resolvingSpell || state.pendingSpell || state.resolvingTrap || state.resolvingEffectMonster);
   }
 
   function closeChoiceDialog() {
@@ -4389,6 +4543,693 @@ if (lobbyEl) {
     dialog.appendChild(panel);
     document.body.appendChild(dialog);
     return true;
+  }
+
+  function normalizeEffectText(value) {
+    return String(value || "").replace(/[’]/g, "'").replace(/\s+/g, " ").trim().toLowerCase();
+  }
+
+  function isEffectMonsterCard(card) {
+    return cardTypeName(card) === "monster" && String(card?.monsterType || "").toLowerCase() === "effect";
+  }
+
+  function effectMonsterCause(card) {
+    return normalizeEffectText(card?.effectCause);
+  }
+
+  function effectMonsterOutcome(card) {
+    return normalizeEffectText(cardEffectOutcome(card));
+  }
+
+  function effectMonsterParams(card) {
+    return effectParamsFromCard(card);
+  }
+
+  function effectUsageKey(entry) {
+    return `${entry.owner}:${duelCardId(entry.card)}`;
+  }
+
+  function canUseEffectMonster(entry) {
+    if (!entry?.card || !isEffectMonsterCard(entry.card)) return false;
+    const key = effectUsageKey(entry);
+    if (entry.card.effectOncePerTurn) return !state.effectMonsterUsesThisTurn.has(key);
+    return !state.effectMonsterUsesEver.has(key);
+  }
+
+  function markEffectMonsterUsed(entry) {
+    const key = effectUsageKey(entry);
+    if (entry.card.effectOncePerTurn) state.effectMonsterUsesThisTurn.add(key);
+    else state.effectMonsterUsesEver.add(key);
+  }
+
+  function currentEffectEntry(entry) {
+    if (!entry?.card) return null;
+    const uid = duelCardId(entry.card);
+    const owner = entry.owner;
+
+    if (entry.location === "field") {
+      const field = ownerMonsterField(owner);
+      let index = field.findIndex((card) => card && duelCardId(card) === uid);
+      if (index < 0 && field[entry.index] && duelCardId(field[entry.index]) === uid) index = entry.index;
+      if (index < 0) return null;
+      const card = field[index];
+      if (!card || card._faceDown) return null;
+      return { ...entry, card, index, zone: "monster", location: "field" };
+    }
+
+    if (entry.location === "hand") {
+      const hand = ownerHand(owner);
+      let index = hand.findIndex((card) => card && duelCardId(card) === uid);
+      if (index < 0) return null;
+      return { ...entry, card: hand[index], index, zone: "hand", location: "hand" };
+    }
+
+    if (entry.location === "graveyard") {
+      const graveyard = ownerGraveyard(owner);
+      let index = graveyard.findIndex((card) => card && duelCardId(card) === uid);
+      if (index < 0) return null;
+      return { ...entry, card: graveyard[index], index, zone: "graveyard", location: "graveyard" };
+    }
+
+    return null;
+  }
+
+  function effectMonsterEntryLocationLabel(entry) {
+    if (entry.location === "hand") return "Hand";
+    if (entry.location === "graveyard") return "Graveyard";
+    return `Monster Zone ${Number(entry.index || 0) + 1}`;
+  }
+
+  function effectMonsterEntriesForOwner(owner) {
+    const entries = [];
+    ownerMonsterField(owner).forEach((card, index) => {
+      if (card && !card._faceDown && isEffectMonsterCard(card)) {
+        entries.push({ owner, card, zone: "monster", index, location: "field" });
+      }
+    });
+    ownerHand(owner).forEach((card, index) => {
+      if (card && isEffectMonsterCard(card)) {
+        entries.push({ owner, card, zone: "hand", index, location: "hand" });
+      }
+    });
+    ownerGraveyard(owner).forEach((card, index) => {
+      if (card && isEffectMonsterCard(card)) {
+        entries.push({ owner, card, zone: "graveyard", index, location: "graveyard" });
+      }
+    });
+    return entries;
+  }
+
+  function effectMonsterRespondsToEvent(entry, event) {
+    if (!canUseEffectMonster(entry)) return false;
+    const outcome = effectMonsterOutcome(entry.card);
+    const summonOnlyOutcomes = new Set([
+      "this monster can attack twice during this turn's battle phase.",
+      "select another monster you control and increase this monster's attack by 50% of the combined attack points for 2 turns.",
+      "this monster cannot be targeted by card effects for 2 turns after summon (including the turn it was summoned).",
+      "this monster cannot be targeted by an attack for 2 turns after summon (including the turn it was summoned)."
+    ]);
+    if (summonOnlyOutcomes.has(outcome) && event.type !== "summon") return false;
+    const cause = effectMonsterCause(entry.card);
+    const owner = entry.owner;
+    const opponent = opponentOwner(owner);
+    const exactSource = (card) => sameDuelCard(entry.card, card);
+    const fieldSource = entry.location === "field";
+    const handSource = entry.location === "hand";
+    const graveSource = entry.location === "graveyard";
+
+    switch (cause) {
+      case "if you gain life points":
+        return fieldSource && event.type === "life-gain" && event.owner === owner;
+      case "if this monster is flip summoned":
+        return fieldSource && event.type === "summon" && event.summonKind === "flip" && exactSource(event.summonedCard);
+      case "if you normal/special summoned a monster":
+        return fieldSource && event.type === "summon" && event.summonerOwner === owner && ["normal", "special"].includes(event.summonKind);
+      case "if this monster is normal/special summoned":
+        return fieldSource && event.type === "summon" && event.summonerOwner === owner && ["normal", "special"].includes(event.summonKind) && exactSource(event.summonedCard);
+      case "if a monster you control attacked":
+        return fieldSource && event.type === "attack" && event.attackerOwner === owner;
+      case "if this monster attacked":
+        return fieldSource && event.type === "attack" && event.attackerOwner === owner && exactSource(event.attackerCard);
+      case "if this monster is destroyed and sent to the graveyard":
+        return graveSource && event.type === "destroyed" && event.destroyedOwner === owner && exactSource(event.destroyedCard);
+      case "if this monster is drawn":
+        return handSource && event.type === "draw" && event.owner === owner && exactSource(event.card);
+      case "if this monster is in the hand":
+        return handSource && event.type === "hand" && event.owner === owner;
+      case "if this monster is attacked by the opponent":
+        return fieldSource && event.type === "attack" && event.attackerOwner === opponent && event.defenderOwner === owner && exactSource(event.defenderCard);
+      case "if opponent normal/special summons a monster":
+        return fieldSource && event.type === "summon" && event.summonerOwner === opponent && ["normal", "special"].includes(event.summonKind);
+      case "if opponent activates a card effect (spell/trap/effect monster)":
+        return fieldSource && event.type === "effect-activated" && event.effectOwner === opponent;
+      case "if opponent activates a spell/trap card":
+        return fieldSource && event.type === "spelltrap-activated" && event.effectOwner === opponent;
+      case "if opponent gains life points":
+        return fieldSource && event.type === "life-gain" && event.owner === opponent;
+      case "if opponent targets this monster by a card effect":
+        return fieldSource && event.type === "effect-target" && event.sourceOwner === opponent && event.targetOwner === owner && exactSource(event.targetCard);
+      case "if opponent destroys 1 or more monsters you control":
+        return fieldSource && event.type === "cards-destroyed" && event.destroyerOwner === opponent && event.owner === owner
+          && event.cards?.some((destroyed) => destroyed.zone === "monster");
+      case "if opponent destroys 1 or more cards you control":
+        return fieldSource && event.type === "cards-destroyed" && event.destroyerOwner === opponent && event.owner === owner
+          && event.cards?.length > 0;
+      default:
+        return false;
+    }
+  }
+
+  function eligibleEffectMonsterEntries(owner, event, usedKeys = new Set()) {
+    return effectMonsterEntriesForOwner(owner)
+      .map(currentEffectEntry)
+      .filter(Boolean)
+      .filter((entry) => !usedKeys.has(effectUsageKey(entry)))
+      .filter((entry) => effectMonsterRespondsToEvent(entry, event));
+  }
+
+  function effectMonsterEventLabel(event) {
+    if (event.type === "life-gain") return `${controllerName(event.owner)} gained life points.`;
+    if (event.type === "draw") return `${controllerName(event.owner)} drew ${cardNameStr(event.card)}.`;
+    if (event.type === "hand") return "An effect monster is in your hand.";
+    if (event.type === "summon") return `${controllerName(event.summonerOwner)} summoned ${cardNameStr(event.summonedCard)}.`;
+    if (event.type === "attack") {
+      if (event.targetIdx === null) return `${cardNameStr(event.attackerCard)} is attacking directly.`;
+      return `${cardNameStr(event.attackerCard)} is attacking ${cardNameStr(event.defenderCard)}.`;
+    }
+    if (event.type === "effect-activated" || event.type === "spelltrap-activated") {
+      return `${controllerName(event.effectOwner)} activated ${cardNameStr(event.sourceCard)}.`;
+    }
+    if (event.type === "effect-target") return `${cardNameStr(event.targetCard)} was targeted by an effect.`;
+    if (event.type === "destroyed") return `${cardNameStr(event.destroyedCard)} was sent to the graveyard.`;
+    if (event.type === "cards-destroyed") return `${controllerName(event.destroyerOwner)} destroyed your card${event.cards?.length === 1 ? "" : "s"}.`;
+    return "An effect monster can respond.";
+  }
+
+  function promptEffectMonsterActivation(entries, event) {
+    closeTrapPrompt();
+
+    return new Promise((resolve) => {
+      const dialog = document.createElement("div");
+      dialog.className = "bf-trap-prompt bf-effect-prompt";
+      dialog.setAttribute("role", "dialog");
+      dialog.setAttribute("aria-modal", "true");
+      dialog.setAttribute("aria-label", "Activate effect monster?");
+
+      const panel = document.createElement("div");
+      panel.className = "bf-trap-prompt-panel bf-effect-prompt-panel";
+
+      const title = document.createElement("div");
+      title.className = "bf-trap-prompt-title";
+      title.textContent = "Activate Effect Monster?";
+
+      const message = document.createElement("div");
+      message.className = "bf-trap-prompt-message";
+      message.textContent = effectMonsterEventLabel(event);
+
+      const list = document.createElement("div");
+      list.className = "bf-effect-prompt-list";
+
+      entries.forEach((entry) => {
+        const btn = document.createElement("button");
+        btn.type = "button";
+        btn.className = "bf-effect-choice-card";
+        btn.appendChild(createTrapPromptCard(entry.card));
+
+        const meta = document.createElement("div");
+        meta.className = "bf-effect-choice-meta";
+        meta.textContent = `${effectMonsterEntryLocationLabel(entry)} - ${entry.card.effectOncePerTurn ? "Once per turn" : "Once per duel"}`;
+        btn.appendChild(meta);
+
+        btn.addEventListener("mouseenter", () => showCardInfo(entry.card));
+        btn.addEventListener("mouseleave", clearCardInfo);
+        btn.addEventListener("click", () => cleanup(entry));
+        list.appendChild(btn);
+      });
+
+      const actions = document.createElement("div");
+      actions.className = "bf-trap-prompt-actions";
+
+      const skipBtn = document.createElement("button");
+      skipBtn.type = "button";
+      skipBtn.className = "bf-trap-prompt-btn";
+      skipBtn.textContent = "Skip";
+      skipBtn.addEventListener("click", () => cleanup(null));
+      actions.appendChild(skipBtn);
+
+      const cleanup = (entry) => {
+        closeTrapPrompt();
+        document.removeEventListener("keydown", onKeydown);
+        resolve(entry);
+      };
+
+      function onKeydown(eventKey) {
+        if (eventKey.key === "Escape") cleanup(null);
+      }
+
+      document.addEventListener("keydown", onKeydown);
+      panel.append(title, message, list, actions);
+      dialog.appendChild(panel);
+      document.body.appendChild(dialog);
+      _trapPromptEl = dialog;
+      window.setTimeout(() => list.querySelector("button")?.focus(), 20);
+    });
+  }
+
+  function pickAiEffectMonsterEntry(entries) {
+    return entries[0] || null;
+  }
+
+  async function triggerEffectMonsterResponses(event, options = {}) {
+    if (isDuelEnded()) return {};
+    const owners = options.owner ? [options.owner] : ["player", "ai"];
+    const result = {};
+
+    for (const owner of owners) {
+      const usedKeys = new Set(options.usedKeys || []);
+      while (!isDuelEnded()) {
+        const entries = eligibleEffectMonsterEntries(owner, event, usedKeys);
+        if (!entries.length) break;
+
+        const entry = owner === "player"
+          ? await promptEffectMonsterActivation(entries, event)
+          : pickAiEffectMonsterEntry(entries);
+        if (!entry) break;
+
+        const current = currentEffectEntry(entry);
+        if (!current) {
+          usedKeys.add(effectUsageKey(entry));
+          continue;
+        }
+        usedKeys.add(effectUsageKey(current));
+        await activateEffectMonster(current, event, result);
+      }
+    }
+
+    return result;
+  }
+
+  async function notifyEffectTargeted(target, sourceOwner, sourceCard) {
+    if (!target || target.zone !== "monster" || target.owner === sourceOwner) return;
+    if (isProtectedFromEffectTarget(target.owner, target.zone, target.index, sourceOwner)) return;
+    await triggerEffectMonsterResponses({
+      type: "effect-target",
+      sourceOwner,
+      sourceCard,
+      targetOwner: target.owner,
+      targetZone: target.zone,
+      targetIdx: target.index,
+      targetCard: target.card
+    }, { owner: target.owner });
+  }
+
+  function filteredFieldTargets(owner, zones, sourceOwner, options = {}) {
+    return availableFieldTargets(owner, zones, { sourceOwner })
+      .filter((entry) => {
+        if (options.faceUpOnly && entry.card._faceDown) return false;
+        return true;
+      });
+  }
+
+  async function chooseEffectTarget(owner, title, entries) {
+    if (!entries.length) return null;
+    if (owner !== "player") {
+      return [...entries].sort((a, b) => Math.max(cardAtk(b.card), cardDef(b.card)) - Math.max(cardAtk(a.card), cardDef(a.card)))[0] || null;
+    }
+    return chooseCardEntry(title, entries);
+  }
+
+  async function chooseMultipleEffectTargets(owner, sourceCard, entries, maxCount, title) {
+    const limit = Math.min(maxCount, entries.length);
+    if (limit <= 0) return [];
+    if (owner !== "player") return [...entries].slice(0, limit);
+
+    const selected = [];
+    let remaining = [...entries];
+    while (selected.length < limit && remaining.length) {
+      const picked = await chooseCardEntry(limit === 1 ? title : `${title} (${selected.length + 1}/${limit})`, remaining);
+      if (!picked) break;
+      selected.push(picked);
+      remaining = remaining.filter((entry) => targetKey(entry) !== targetKey(picked));
+      if (selected.length < limit && remaining.length) {
+        const keepGoing = await promptTrapDecision(cardNameStr(sourceCard), "Select another target for this effect?", "Select Another", "Resolve");
+        if (!keepGoing) break;
+      }
+    }
+    return selected;
+  }
+
+  async function moveFieldCardToHand(owner, zone, slotIdx) {
+    const field = fieldForZone(owner, zone);
+    const card = field[slotIdx];
+    if (!card) return false;
+    const fromRect = readRect(slotsForZone(owner, zone)[slotIdx]);
+    field[slotIdx] = null;
+    card._faceDown = false;
+    ownerHand(owner).push(card);
+    renderField();
+    if (owner === "player") renderPlayerHand();
+    else renderAiHand();
+    updateCounts();
+    await animateCardMove(card, fromRect, ownerHandEl(owner)?.lastElementChild || ownerHandEl(owner), "is-draw", {
+      faceDown: owner === "ai"
+    });
+    return true;
+  }
+
+  async function specialSummonFromCollection(owner, source, index, sourceElOrRect = null) {
+    const monsterZone = ownerMonsterField(owner);
+    const slotIdx = monsterZone.indexOf(null);
+    if (slotIdx < 0) return null;
+
+    let collection = null;
+    let fromElOrRect = sourceElOrRect;
+    if (source === "hand") {
+      collection = ownerHand(owner);
+      fromElOrRect = fromElOrRect || ownerHandEl(owner)?.children[index];
+    } else if (source === "deck") {
+      collection = ownerDeck(owner);
+      fromElOrRect = fromElOrRect || ownerDeckPile(owner);
+    } else {
+      collection = ownerGraveyard(owner);
+      fromElOrRect = fromElOrRect || ownerGraveyardSlot(owner);
+    }
+    const [monster] = collection.splice(index, 1);
+    if (!monster) return null;
+
+    const summoned = { ...monster, _faceDown: false, _position: "attack" };
+    monsterZone[slotIdx] = summoned;
+    renderField();
+    if (owner === "player") renderPlayerHand();
+    else renderAiHand();
+    updateCounts();
+    await animatePlaceCard(summoned, fromElOrRect, monsterSlots(owner)[slotIdx], false);
+    await resolveSummonTrapResponses(owner, slotIdx, summoned, "special");
+    return monsterZone[slotIdx] === summoned ? { card: summoned, slotIdx } : null;
+  }
+
+  async function returnGraveyardCardForEffect(owner, sourceCard, destination) {
+    const graveyard = ownerGraveyard(owner);
+    const entries = graveyard.map((card, index) => ({ owner, zone: "graveyard", index, card }));
+    const picked = await chooseEffectTarget(owner, "Choose Graveyard Card", entries);
+    if (!picked) return false;
+    const actualIndex = graveyard.findIndex((card) => sameDuelCard(card, picked.card));
+    if (actualIndex < 0) return false;
+    const [card] = graveyard.splice(actualIndex, 1);
+    if (destination === "deck") ownerDeck(owner).unshift(card);
+    else ownerHand(owner).push(card);
+    updateCounts();
+    renderPlayerHand();
+    renderAiHand();
+    await animateCardMove(card, ownerGraveyardSlot(owner), destination === "deck" ? ownerDeckPile(owner) : ownerHandEl(owner)?.lastElementChild, destination === "deck" ? "is-to-deck" : "is-draw", {
+      faceDown: owner === "ai"
+    });
+    showStatus(`${cardNameStr(sourceCard)} returned ${cardNameStr(card)} to the ${destination}.`, 1800);
+    return true;
+  }
+
+  async function destroyEffectTargets(sourceOwner, sourceCard, targets) {
+    const destroyed = [];
+    for (const target of targets) {
+      const current = fieldForZone(target.owner, target.zone)[target.index];
+      if (!current) continue;
+      await notifyEffectTargeted(target, sourceOwner, sourceCard);
+      destroyed.push({ owner: target.owner, zone: target.zone, card: current });
+      await destroyFieldCardToGraveyard(target.owner, target.zone, target.index, {
+        faceDown: target.zone === "spelltrap",
+        suppressEffectMonsterDestroy: true
+      });
+      await triggerEffectMonsterResponses({
+        type: "destroyed",
+        destroyedOwner: target.owner,
+        destroyedZone: target.zone,
+        destroyedCard: current,
+        destroyerOwner: sourceOwner,
+        sourceCard
+      }, { owner: target.owner });
+    }
+    await notifyCardsDestroyedBy(sourceOwner, destroyed, sourceCard);
+    return destroyed.length;
+  }
+
+  async function notifyCardsDestroyedBy(destroyerOwner, destroyedEntries, sourceCard = null) {
+    const grouped = {};
+    destroyedEntries.filter(Boolean).forEach((entry) => {
+      if (!entry.owner || entry.owner === destroyerOwner) return;
+      grouped[entry.owner] = grouped[entry.owner] || [];
+      grouped[entry.owner].push(entry);
+    });
+    for (const owner of Object.keys(grouped)) {
+      await triggerEffectMonsterResponses({
+        type: "cards-destroyed",
+        owner,
+        destroyerOwner,
+        cards: grouped[owner],
+        sourceCard
+      }, { owner });
+    }
+  }
+
+  async function resolveEffectMonsterEffect(entry, triggerEvent) {
+    const owner = entry.owner;
+    const opponent = opponentOwner(owner);
+    const card = entry.card;
+    const outcome = effectMonsterOutcome(card);
+    const params = effectMonsterParams(card);
+    const levelRangeMatch = outcome.match(/^special summon a level (\d+) to (\d+) monster from hand\.$/i);
+
+    if (levelRangeMatch) {
+      const parsedFrom = boundedNumber(levelRangeMatch[1], 1, 1, 4);
+      const parsedTo = boundedNumber(levelRangeMatch[2], 4, 1, 4);
+      const minLevel = boundedNumber(params.levelFrom, parsedFrom, 1, 4);
+      const maxLevel = boundedNumber(params.levelTo, parsedTo, 1, 4);
+      const from = Math.min(minLevel, maxLevel);
+      const to = Math.max(minLevel, maxLevel);
+      const choices = ownerHand(owner)
+        .map((candidate, index) => ({ owner, zone: "hand", index, card: candidate }))
+        .filter(({ card: candidate }) => isMonsterCard(candidate) && cardLevel(candidate) >= from && cardLevel(candidate) <= to);
+      const picked = await chooseEffectTarget(owner, `Special Summon Level ${from}-${to}`, choices);
+      if (!picked) {
+        showStatus(`${cardNameStr(card)} found no monster to special summon.`, 1700);
+        return;
+      }
+      await specialSummonFromCollection(owner, "hand", picked.index, ownerHandEl(owner)?.children[picked.index]);
+      return;
+    }
+
+    switch (outcome) {
+      case "draw 1 card.":
+        await drawCardVisible(owner);
+        showStatus(`${cardNameStr(card)} drew 1 card.`, 1700);
+        return;
+
+      case "revive a monster from your graveyard.": {
+        const choices = ownerGraveyard(owner)
+          .map((candidate, index) => ({ owner, zone: "graveyard", index, card: candidate }))
+          .filter(({ card: candidate }) => isMonsterCard(candidate));
+        const picked = await chooseEffectTarget(owner, "Revive Monster", choices);
+        if (!picked) {
+          showStatus(`${cardNameStr(card)} found no monster to revive.`, 1700);
+          return;
+        }
+        await specialSummonFromCollection(owner, "graveyard", picked.index, ownerGraveyardSlot(owner));
+        return;
+      }
+
+      case "send a monster/spell/trap card from graveyard to hand.":
+      case "send a monster/spell/trap card from graveyard to deck.":
+        await returnGraveyardCardForEffect(owner, card, outcome.endsWith("deck.") ? "deck" : "hand");
+        return;
+
+      case "reduce opponent's life points by up to 500.": {
+        const amount = boundedNumber(params.lpAmount, 500, 0, 500);
+        await Promise.all([quakeOwnerField(opponent), adjustLife(opponent, amount)]);
+        showStatus(`${cardNameStr(card)} dealt ${amount} damage.`, 1800);
+        return;
+      }
+
+      case "destroy an opponent's monster in the field.": {
+        const targets = filteredFieldTargets(opponent, ["monster"], owner);
+        const picked = await chooseEffectTarget(owner, "Destroy Opponent Monster", targets);
+        if (!picked) return;
+        await destroyEffectTargets(owner, card, [picked]);
+        return;
+      }
+
+      case "destroy an opponent's spell/trap card in the field.": {
+        const targets = filteredFieldTargets(opponent, ["spelltrap"], owner);
+        const picked = await chooseEffectTarget(owner, "Destroy Spell / Trap", targets);
+        if (!picked) return;
+        await destroyEffectTargets(owner, card, [picked]);
+        return;
+      }
+
+      case "return a monster card from field to opponent's hand.": {
+        const targets = filteredFieldTargets(opponent, ["monster"], owner);
+        const picked = await chooseEffectTarget(owner, "Return Monster to Hand", targets);
+        if (!picked) return;
+        await notifyEffectTargeted(picked, owner, card);
+        await moveFieldCardToHand(picked.owner, picked.zone, picked.index);
+        return;
+      }
+
+      case "return a spell/trap card from field to opponent's hand.": {
+        const targets = filteredFieldTargets(opponent, ["spelltrap"], owner);
+        const picked = await chooseEffectTarget(owner, "Return Spell / Trap", targets);
+        if (!picked) return;
+        await moveFieldCardToHand(picked.owner, picked.zone, picked.index);
+        return;
+      }
+
+      case "select and destroy 1-2 opponent's monsters.": {
+        const targets = filteredFieldTargets(opponent, ["monster"], owner);
+        const selected = await chooseMultipleEffectTargets(owner, card, targets, 2, "Destroy Opponent Monster");
+        await destroyEffectTargets(owner, card, selected);
+        return;
+      }
+
+      case "select and destroy 1-2 opponent's spell/trap cards.": {
+        const targets = filteredFieldTargets(opponent, ["spelltrap"], owner);
+        const selected = await chooseMultipleEffectTargets(owner, card, targets, 2, "Destroy Spell / Trap");
+        await destroyEffectTargets(owner, card, selected);
+        return;
+      }
+
+      case "this monster can attack twice during this turn's battle phase.":
+        card._doubleAttackUntilTurn = state.turn;
+        renderField();
+        showStatus(`${cardNameStr(card)} can attack twice this turn.`, 1700);
+        return;
+
+      case "increase this monster's attack by 1000 for 2 turns.":
+        addTemporaryStatEffect(card, "attack", 1000, state.turn + 1);
+        renderField();
+        showStatus(`${cardNameStr(card)} gained 1000 ATK for 2 turns.`, 1700);
+        return;
+
+      case "increase this monster's defense by 1000 for 2 turns.":
+        addTemporaryStatEffect(card, "defense", 1000, state.turn + 1);
+        renderField();
+        showStatus(`${cardNameStr(card)} gained 1000 DEF for 2 turns.`, 1700);
+        return;
+
+      case "reduce the attack of an opponent's faceup monster by 1000 during this turn's battle phase.": {
+        const targets = filteredFieldTargets(opponent, ["monster"], owner, { faceUpOnly: true });
+        const picked = await chooseEffectTarget(owner, "Reduce Opponent ATK", targets);
+        if (!picked) return;
+        await notifyEffectTargeted(picked, owner, card);
+        addTemporaryStatEffect(picked.card, "attack", -1000, state.turn, { battleOnly: true });
+        renderField();
+        return;
+      }
+
+      case "reduce the defense of an opponent's faceup monster by 1000 during this turn's battle phase.": {
+        const targets = filteredFieldTargets(opponent, ["monster"], owner, { faceUpOnly: true });
+        const picked = await chooseEffectTarget(owner, "Reduce Opponent DEF", targets);
+        if (!picked) return;
+        await notifyEffectTargeted(picked, owner, card);
+        addTemporaryStatEffect(picked.card, "defense", -1000, state.turn, { battleOnly: true });
+        renderField();
+        return;
+      }
+
+      case "select another monster you control and increase this monster's attack by 50% of the combined attack points for 2 turns.": {
+        const targets = ownerMonsterField(owner)
+          .map((candidate, index) => ({ owner, zone: "monster", index, card: candidate }))
+          .filter(({ card: candidate }) => candidate && !sameDuelCard(candidate, card));
+        const picked = await chooseEffectTarget(owner, "Choose Allied Monster", targets);
+        if (!picked) return;
+        const amount = Math.floor((cardAtk(card) + cardAtk(picked.card)) * 0.5);
+        addTemporaryStatEffect(card, "attack", amount, state.turn + 1);
+        renderField();
+        showStatus(`${cardNameStr(card)} gained ${amount} ATK.`, 1800);
+        return;
+      }
+
+      case "this monster cannot be targeted by card effects for 2 turns after summon (including the turn it was summoned).":
+        card._effectTargetImmuneUntilTurn = state.turn + 1;
+        renderField();
+        showStatus(`${cardNameStr(card)} cannot be targeted by effects for 2 turns.`, 1800);
+        return;
+
+      case "this monster cannot be targeted by an attack for 2 turns after summon (including the turn it was summoned).":
+        card._attackTargetImmuneUntilTurn = state.turn + 1;
+        renderField();
+        showStatus(`${cardNameStr(card)} cannot be targeted by attacks for 2 turns.`, 1800);
+        return;
+
+      case "special summon 1-2 level 4 or below monsters from hand.":
+      case "special summon 1-2 level 4 or below monsters from deck.": {
+        const source = outcome.endsWith("deck.") ? "deck" : "hand";
+        const collection = source === "deck" ? ownerDeck(owner) : ownerHand(owner);
+        let summoned = 0;
+        while (summoned < 2 && ownerMonsterField(owner).some((slot) => slot === null)) {
+          const choices = collection
+            .map((candidate, index) => ({ owner, zone: source, index, card: candidate }))
+            .filter(({ card: candidate }) => isMonsterCard(candidate) && cardLevel(candidate) <= 4);
+          const picked = await chooseEffectTarget(owner, `Special Summon ${source === "deck" ? "from Deck" : "from Hand"}`, choices);
+          if (!picked) break;
+          await specialSummonFromCollection(owner, source, picked.index, source === "deck" ? ownerDeckPile(owner) : ownerHandEl(owner)?.children[picked.index]);
+          summoned++;
+          if (owner !== "player") continue;
+          if (summoned < 2 && choices.length > 1 && ownerMonsterField(owner).some((slot) => slot === null)) {
+            const keepGoing = await promptTrapDecision(cardNameStr(card), "Special summon another level 4 or below monster?", "Summon Another", "Resolve");
+            if (!keepGoing) break;
+          }
+        }
+        return;
+      }
+
+      default:
+        showStatus(`${cardNameStr(card)} has no supported effect monster behavior yet.`, 1800);
+    }
+  }
+
+  async function activateEffectMonster(entry, triggerEvent, result = {}) {
+    const current = currentEffectEntry(entry);
+    if (!current || !canUseEffectMonster(current)) return result;
+
+    state.resolvingEffectMonster = true;
+    markEffectMonsterUsed(current);
+    renderField();
+    showStatus(`${controllerName(current.owner)} activated ${cardNameStr(current.card)}.`, 1600);
+
+    try {
+      const sourceZone = current.location === "field" ? "monster" : "";
+      const sourceIdx = current.location === "field" ? current.index : null;
+      await triggerEffectMonsterResponses({
+        type: "effect-activated",
+        effectOwner: current.owner,
+        sourceOwner: current.owner,
+        sourceZone,
+        sourceIdx,
+        sourceCard: current.card,
+        sourceType: "effect-monster"
+      }, { owner: opponentOwner(current.owner), usedKeys: new Set([effectUsageKey(current)]) });
+
+      const trapResult = await triggerTrapResponses({
+        type: "effect",
+        effectOwner: current.owner,
+        sourceOwner: current.owner,
+        sourceZone,
+        sourceIdx,
+        sourceCard: current.card
+      });
+      if (trapResult.negateEffect) {
+        showStatus(`${cardNameStr(current.card)} was negated by a trap.`, 1800);
+        return { ...result, negated: true };
+      }
+
+      await resolveEffectMonsterEffect(current, triggerEvent);
+      return result;
+    } finally {
+      state.resolvingEffectMonster = false;
+      updateCounts();
+      renderPlayerHand();
+      renderAiHand();
+      renderField();
+      if (state.defeatedOwner) endGame(defeatMessage(state.defeatedOwner));
+    }
   }
 
   function closeTrapPrompt() {
@@ -4717,11 +5558,15 @@ if (lobbyEl) {
     return selected;
   }
 
-  async function destroyTrapTargets(targets) {
+  async function destroyTrapTargets(targets, destroyerOwner = "", sourceCard = null) {
     for (const target of targets) {
       if (!fieldForZone(target.owner, target.zone)[target.index]) continue;
+      if (destroyerOwner && isProtectedFromEffectTarget(target.owner, target.zone, target.index, destroyerOwner)) continue;
+      if (destroyerOwner) await notifyEffectTargeted(target, destroyerOwner, sourceCard);
       await destroyFieldCardToGraveyard(target.owner, target.zone, target.index, {
-        faceDown: target.zone === "spelltrap"
+        faceDown: target.zone === "spelltrap",
+        destroyerOwner,
+        sourceCard
       });
     }
   }
@@ -4789,7 +5634,7 @@ if (lobbyEl) {
           showStatus(`${cardNameStr(card)} found no other opponent monsters to destroy.`, 1800);
           break;
         }
-        await destroyTrapTargets(selected);
+        await destroyTrapTargets(selected, entry.owner, card);
         showStatus(`${cardNameStr(card)} destroyed ${selected.length} monster${selected.length === 1 ? "" : "s"}.`, 1800);
         break;
       }
@@ -4803,7 +5648,7 @@ if (lobbyEl) {
           showStatus(`${cardNameStr(card)} found no other opponent monster to destroy.`, 1800);
           break;
         }
-        await destroyTrapTargets(selected);
+        await destroyTrapTargets(selected, entry.owner, card);
         showStatus(`${cardNameStr(card)} destroyed ${cardNameStr(selected[0].card)}.`, 1800);
         break;
       }
@@ -4818,10 +5663,13 @@ if (lobbyEl) {
         const weakerTargets = otherTargets.filter((target) => cardAtk(target.card) < summonedAtk);
 
         if (weakerTargets.length) {
-          await destroyTrapTargets(weakerTargets);
+          await destroyTrapTargets(weakerTargets, entry.owner, card);
           showStatus(`${cardNameStr(card)} destroyed ${weakerTargets.length} weaker monster${weakerTargets.length === 1 ? "" : "s"}.`, 1800);
         } else if (!otherTargets.length) {
-          await destroyFieldCardToGraveyard(event.summonerOwner, "monster", event.summonedIdx);
+          await destroyFieldCardToGraveyard(event.summonerOwner, "monster", event.summonedIdx, {
+            destroyerOwner: entry.owner,
+            sourceCard: card
+          });
           outcome.summonedRemoved = true;
           showStatus(`${cardNameStr(card)} destroyed the summoned monster instead.`, 1800);
         } else {
@@ -4843,7 +5691,9 @@ if (lobbyEl) {
           const sourceField = fieldForZone(sourceOwner, event.sourceZone);
           if (sourceField[event.sourceIdx] === event.sourceCard) {
             await destroyFieldCardToGraveyard(sourceOwner, event.sourceZone, event.sourceIdx, {
-              faceDown: event.sourceZone === "spelltrap"
+              faceDown: event.sourceZone === "spelltrap",
+              destroyerOwner: entry.owner,
+              sourceCard: card
             });
           }
         }
@@ -4859,7 +5709,7 @@ if (lobbyEl) {
           showStatus(`${cardNameStr(card)} found no monster to destroy.`, 1800);
           break;
         }
-        await destroyTrapTargets(selected);
+        await destroyTrapTargets(selected, entry.owner, card);
         showStatus(`${cardNameStr(card)} destroyed ${cardNameStr(selected[0].card)}.`, 1800);
         break;
       }
@@ -4926,6 +5776,25 @@ if (lobbyEl) {
     renderField();
     showStatus(`${controllerName(entry.owner)} activated ${cardNameStr(card)}!`, 1600);
     await sleep(220);
+
+    await triggerEffectMonsterResponses({
+      type: "effect-activated",
+      effectOwner: entry.owner,
+      sourceOwner: entry.owner,
+      sourceZone: "spelltrap",
+      sourceIdx: entry.slotIdx,
+      sourceCard: card,
+      sourceType: "trap"
+    }, { owner: opponentOwner(entry.owner) });
+    await triggerEffectMonsterResponses({
+      type: "spelltrap-activated",
+      effectOwner: entry.owner,
+      sourceOwner: entry.owner,
+      sourceZone: "spelltrap",
+      sourceIdx: entry.slotIdx,
+      sourceCard: card,
+      sourceType: "trap"
+    }, { owner: opponentOwner(entry.owner) });
 
     const outcome = await resolveTrapEffect(entry, event);
 
@@ -5083,13 +5952,17 @@ if (lobbyEl) {
 
   async function resolveSummonTrapResponses(summonerOwner, slotIdx, summonedCard, summonKind) {
     if (!summonedCard || summonKind === "set") return {};
-    return triggerTrapResponses({
+    const event = {
       type: "summon",
       summonerOwner,
       summonedIdx: slotIdx,
       summonedCard,
       summonKind
-    });
+    };
+    const trapResult = await triggerTrapResponses(event);
+    if (state.defeatedOwner || ownerMonsterField(summonerOwner)[slotIdx] !== summonedCard) return trapResult;
+    await triggerEffectMonsterResponses(event);
+    return trapResult;
   }
 
   async function playToSlot(fieldArr, slotIdx, isMonsterZone) {
@@ -5216,7 +6089,7 @@ if (lobbyEl) {
     const attacker = state.playerMonster[slotIdx];
     if (!attacker) { showStatus("No monster in that slot"); return; }
     if (attacker._position === "defense") { showStatus("Monsters in defense position cannot attack"); return; }
-    if (state.monstersAttackedThisTurn.has(slotIdx)) { showStatus("That monster already attacked this turn"); return; }
+    if (hasMonsterFinishedAttacking("player", slotIdx)) { showStatus("That monster already attacked this turn"); return; }
 
     const atkSlotEl = playerMonZone.querySelectorAll(".bf-slot")[slotIdx];
     atkSlotEl?.classList.add("is-attacking");
@@ -5289,7 +6162,7 @@ if (lobbyEl) {
       showStatus(`${cardNameStr(attacker)} attacks directly for ${atk} damage!`);
     }
 
-    state.monstersAttackedThisTurn.add(slotIdx);
+    markMonsterAttacked("player", slotIdx);
     renderField();
     updateCounts();
 
@@ -5442,7 +6315,7 @@ if (lobbyEl) {
     return sleep(SPELL_LP_ANIM_MS);
   }
 
-  function adjustLife(owner, amount, options = {}) {
+  async function adjustLife(owner, amount, options = {}) {
     if (amount === 0) return Promise.resolve();
     const before = owner === "player" ? state.playerLP : state.aiLP;
     const after = Math.max(0, before - amount);
@@ -5456,9 +6329,18 @@ if (lobbyEl) {
     animateLifeChange(owner, delta);
     if (delta < 0) damageFlash(lifeBar(owner));
 
-    if (options.spellVisual === "damage" && delta < 0) return animateSpellDamage(owner);
-    if (options.spellVisual === "heal" && delta > 0) return animateSpellHeal(owner);
-    return Promise.resolve();
+    let animation = Promise.resolve();
+    if (options.spellVisual === "damage" && delta < 0) animation = animateSpellDamage(owner);
+    if (options.spellVisual === "heal" && delta > 0) animation = animateSpellHeal(owner);
+    await animation;
+
+    if (delta > 0 && !options.suppressEffectMonsterTriggers) {
+      await triggerEffectMonsterResponses({
+        type: "life-gain",
+        owner,
+        amount: delta
+      });
+    }
   }
 
   function defeatMessage(owner) {
@@ -5480,7 +6362,7 @@ if (lobbyEl) {
     const attacker = attackerField[attackerIdx];
     if (!attacker) return false;
 
-    const trapResult = await triggerTrapResponses({
+    const attackEvent = {
       type: "attack",
       attackerOwner,
       attackerIdx,
@@ -5488,9 +6370,19 @@ if (lobbyEl) {
       defenderOwner,
       targetIdx,
       defenderCard: targetIdx === null ? null : defenderField[targetIdx]
-    });
+    };
+
+    await triggerEffectMonsterResponses(attackEvent);
+    if (state.defeatedOwner) return true;
+    if (!attackerField[attackerIdx]) {
+      renderField();
+      updateCounts();
+      return false;
+    }
+
+    const trapResult = await triggerTrapResponses(attackEvent);
     if (trapResult.cancelAttack) {
-      if (attackerOwner === "player") state.monstersAttackedThisTurn.add(attackerIdx);
+      markMonsterAttacked(attackerOwner, attackerIdx);
       renderField();
       updateCounts();
       return Boolean(state.defeatedOwner);
@@ -5512,7 +6404,7 @@ if (lobbyEl) {
         const def = cardDef(defender);
         if (atk > def) {
           showStatus(`${cardNameStr(attacker)} destroys ${cardNameStr(defender)}! (No damage in defense mode)`);
-          await sendMonsterToGraveyard(defenderOwner, targetIdx, { shatter: true });
+          await sendMonsterToGraveyard(defenderOwner, targetIdx, { shatter: true, destroyerOwner: attackerOwner, sourceCard: attacker });
         } else if (atk === def) {
           showStatus("Attack equals defense - no cards destroyed, no damage!");
         } else {
@@ -5528,18 +6420,16 @@ if (lobbyEl) {
           const damage = atk - defenderAtk;
           adjustLife(defenderOwner, damage);
           showStatus(`${cardNameStr(attacker)} destroys ${cardNameStr(defender)}! ${controllerName(defenderOwner)} take${defenderOwner === "player" ? "" : "s"} ${damage} damage!`);
-          await sendMonsterToGraveyard(defenderOwner, targetIdx, { shatter: true });
+          await sendMonsterToGraveyard(defenderOwner, targetIdx, { shatter: true, destroyerOwner: attackerOwner, sourceCard: attacker });
         } else if (atk < defenderAtk) {
           const damage = defenderAtk - atk;
           adjustLife(attackerOwner, damage);
           showStatus(`${cardNameStr(defender)} destroys ${cardNameStr(attacker)}! ${controllerName(attackerOwner)} take${attackerOwner === "player" ? "" : "s"} ${damage} damage!`);
-          await sendMonsterToGraveyard(attackerOwner, attackerIdx, { shatter: true });
+          await sendMonsterToGraveyard(attackerOwner, attackerIdx, { shatter: true, destroyerOwner: defenderOwner, sourceCard: defender });
         } else {
           showStatus("Both monsters are destroyed! No damage.");
-          await Promise.all([
-            sendMonsterToGraveyard(defenderOwner, targetIdx, { shatter: true }),
-            sendMonsterToGraveyard(attackerOwner, attackerIdx, { shatter: true })
-          ]);
+          await sendMonsterToGraveyard(defenderOwner, targetIdx, { shatter: true, destroyerOwner: attackerOwner, sourceCard: attacker });
+          await sendMonsterToGraveyard(attackerOwner, attackerIdx, { shatter: true, destroyerOwner: defenderOwner, sourceCard: defender });
         }
       }
     } else {
@@ -5549,7 +6439,7 @@ if (lobbyEl) {
       await Promise.all([quakePromise, lifePromise]);
     }
 
-    if (attackerOwner === "player") state.monstersAttackedThisTurn.add(attackerIdx);
+    markMonsterAttacked(attackerOwner, attackerIdx);
     renderField();
     updateCounts();
 
@@ -5563,7 +6453,7 @@ if (lobbyEl) {
     const aiSlots = monsterSlots("ai");
     playerSlots[attackerIdx]?.classList.add("is-attack-source");
     aiSlots.forEach((slot, idx) => {
-      if (state.aiMonster[idx]) slot.classList.add("is-attack-target");
+      if (state.aiMonster[idx] && !isProtectedFromAttackTarget("ai", idx, "player")) slot.classList.add("is-attack-target");
     });
   }
 
@@ -5576,6 +6466,10 @@ if (lobbyEl) {
     }
     if (!state.aiMonster[targetIdx]) {
       showStatus("Choose an occupied opposing monster slot");
+      return;
+    }
+    if (isProtectedFromAttackTarget("ai", targetIdx, "player")) {
+      showStatus(`${cardNameStr(state.aiMonster[targetIdx])} cannot be targeted by attacks right now.`);
       return;
     }
 
@@ -5595,10 +6489,11 @@ if (lobbyEl) {
     const attacker = state.playerMonster[slotIdx];
     if (!attacker) { showStatus("No monster in that slot"); return; }
     if (attacker._position === "defense") { showStatus("Monsters in defense position cannot attack"); return; }
-    if (state.monstersAttackedThisTurn.has(slotIdx)) { showStatus("That monster already attacked this turn"); return; }
+    if (hasMonsterFinishedAttacking("player", slotIdx)) { showStatus("That monster already attacked this turn"); return; }
 
-    const hasTargets = state.aiMonster.some((monster) => monster !== null);
-    if (!hasTargets) {
+    const totalTargets = state.aiMonster.some((monster) => monster !== null);
+    const hasAttackableTargets = state.aiMonster.some((monster, index) => monster && !isProtectedFromAttackTarget("ai", index, "player"));
+    if (!totalTargets) {
       clearBattleSelection();
       state.resolvingBattle = true;
       try {
@@ -5607,6 +6502,10 @@ if (lobbyEl) {
       } finally {
         state.resolvingBattle = false;
       }
+      return;
+    }
+    if (!hasAttackableTargets) {
+      showStatus("No opposing monsters can be targeted by attacks right now.");
       return;
     }
 
@@ -5869,11 +6768,13 @@ if (lobbyEl) {
     }
   }
 
-  function availableFieldTargets(owner, zones = ["monster", "spelltrap"]) {
+  function availableFieldTargets(owner, zones = ["monster", "spelltrap"], options = {}) {
     const entries = [];
     zones.forEach((zone) => {
       fieldForZone(owner, zone).forEach((card, index) => {
-        if (card) entries.push({ owner, zone, index, card });
+        if (!card) return;
+        if (options.sourceOwner && isProtectedFromEffectTarget(owner, zone, index, options.sourceOwner)) return;
+        entries.push({ owner, zone, index, card });
       });
     });
     return entries;
@@ -5895,13 +6796,13 @@ if (lobbyEl) {
     if (!pending) return [];
 
     if (pending.kind === "destroy-opponent-cards") {
-      return availableFieldTargets("ai", ["monster", "spelltrap"]);
+      return availableFieldTargets("ai", ["monster", "spelltrap"], { sourceOwner: pending.context?.owner || "player" });
     }
     if (pending.kind === "increase-stat") {
       return availableFieldTargets("player", ["monster"]);
     }
     if (pending.kind === "restrict-monster") {
-      return availableFieldTargets("ai", ["monster"]);
+      return availableFieldTargets("ai", ["monster"], { sourceOwner: pending.context?.owner || "player" });
     }
     return [];
   }
@@ -5930,11 +6831,17 @@ if (lobbyEl) {
       const targets = selected
         .map((key) => pendingSpellTargetEntries().find((entry) => targetKey(entry) === key))
         .filter(Boolean);
-      await Promise.all(targets.map((target) => (
-        destroyFieldCardToGraveyard(target.owner, target.zone, target.index, {
-          faceDown: target.zone === "spelltrap"
-        })
-      )));
+      const destroyed = [];
+      for (const target of targets) {
+        await notifyEffectTargeted(target, pending.context?.owner || "player", pending.context?.card);
+        const current = fieldForZone(target.owner, target.zone)[target.index];
+        if (current) destroyed.push({ owner: target.owner, zone: target.zone, card: current });
+        await destroyFieldCardToGraveyard(target.owner, target.zone, target.index, {
+          faceDown: target.zone === "spelltrap",
+          destroyerOwner: pending.context?.owner || "player",
+          sourceCard: pending.context?.card
+        });
+      }
       await finishSpellActivation(pending.context, `${cardNameStr(pending.context.card)} destroyed ${targets.length} opponent card${targets.length === 1 ? "" : "s"}.`);
     }
   }
@@ -5967,6 +6874,7 @@ if (lobbyEl) {
 
     if (pending.kind === "restrict-monster") {
       const card = state.aiMonster[index];
+      await notifyEffectTargeted(entry, pending.context?.owner || "player", pending.context?.card);
       card._attackRestrictedUntilTurn = Math.max(Number(card._attackRestrictedUntilTurn || 0), state.turn + pending.turns - 1);
       renderField();
       await finishSpellActivation(pending.context, `${cardNameStr(card)} cannot attack for ${pending.turns} turn${pending.turns === 1 ? "" : "s"}.`);
@@ -6090,16 +6998,22 @@ if (lobbyEl) {
   }
 
   async function destroyAllFieldCards(owner, zone, context, label) {
-    const targets = availableFieldTargets(owner, [zone]);
+    const targets = availableFieldTargets(owner, [zone], { sourceOwner: context?.owner || "player" });
     if (!targets.length) {
       await finishSpellActivation(context, `${cardNameStr(context.card)} found no ${label} to destroy.`);
       return;
     }
-    await Promise.all(targets.map((target) => (
-      destroyFieldCardToGraveyard(owner, zone, target.index, {
-        faceDown: zone === "spelltrap"
-      })
-    )));
+    const destroyed = [];
+    for (const target of targets) {
+      await notifyEffectTargeted(target, context?.owner || "player", context?.card);
+      const current = fieldForZone(owner, zone)[target.index];
+      if (current) destroyed.push({ owner, zone, card: current });
+      await destroyFieldCardToGraveyard(owner, zone, target.index, {
+        faceDown: zone === "spelltrap",
+        destroyerOwner: context?.owner || "player",
+        sourceCard: context?.card
+      });
+    }
     await finishSpellActivation(context, `${cardNameStr(context.card)} destroyed all opponent ${label}.`);
   }
 
@@ -6111,6 +7025,24 @@ if (lobbyEl) {
     const params = spellParams(card);
 
     if (effect) {
+      await triggerEffectMonsterResponses({
+        type: "effect-activated",
+        effectOwner: context.owner || "player",
+        sourceOwner: context.owner || "player",
+        sourceZone: context.zone || "spelltrap",
+        sourceIdx: context.slotIdx,
+        sourceCard: card,
+        sourceType: "spell"
+      }, { owner: opponentOwner(context.owner || "player") });
+      await triggerEffectMonsterResponses({
+        type: "spelltrap-activated",
+        effectOwner: context.owner || "player",
+        sourceOwner: context.owner || "player",
+        sourceZone: context.zone || "spelltrap",
+        sourceIdx: context.slotIdx,
+        sourceCard: card,
+        sourceType: "spell"
+      }, { owner: opponentOwner(context.owner || "player") });
       const trapResult = await triggerTrapResponses({
         type: "effect",
         effectOwner: context.owner || "player",
@@ -6158,7 +7090,7 @@ if (lobbyEl) {
         return;
       }
       case "destroy-opponent-cards": {
-        const entries = availableFieldTargets("ai", ["monster", "spelltrap"]);
+        const entries = availableFieldTargets("ai", ["monster", "spelltrap"], { sourceOwner: context.owner || "player" });
         if (!entries.length) {
           await finishSpellActivation(context, "The opponent controls no cards to destroy.");
           return;
@@ -6256,7 +7188,7 @@ if (lobbyEl) {
         return;
       }
       case "restrict-monster": {
-        const entries = availableFieldTargets("ai", ["monster"]);
+        const entries = availableFieldTargets("ai", ["monster"], { sourceOwner: context.owner || "player" });
         if (!entries.length) {
           await finishSpellActivation(context, "AI controls no monsters to restrict.");
           return;
@@ -6570,7 +7502,7 @@ if (lobbyEl) {
   const phaseOrder = ["draw", "main1", "battle", "main2", "end"];
 
   phaseButtons.forEach((btn) => {
-    btn.addEventListener("click", () => {
+    btn.addEventListener("click", async () => {
       if (state.activePlayer !== "player") return;
       if (isSpellResolutionBusy()) {
         showStatus("Finish resolving the active spell first.");
@@ -6597,6 +7529,7 @@ if (lobbyEl) {
 
       if (btn.dataset.bfPhase === "battle") {
         state.monstersAttackedThisTurn.clear();
+        state.monsterAttackCountsThisTurn.clear();
       }
 
       setPhase(btn.dataset.bfPhase);
@@ -6606,19 +7539,23 @@ if (lobbyEl) {
       }
       if (btn.dataset.bfPhase === "main2") {
         showStatus("Main Phase 2 — play more cards or end your turn", 2500);
+        await triggerEffectMonsterResponses({ type: "hand", owner: "player" }, { owner: "player" });
       }
     });
   });
 
   // ── Draw via deck prompt or clicking the deck pile ──────
-  function doDraw() {
+  async function doDraw() {
     if (state.activePlayer !== "player") return;
     if (state.phase !== "draw") return;
     if (state.hasDrawn) { showStatus("Already drew this turn!"); return; }
-    if (!drawCard("player")) return;
+    if (!await drawCard("player")) return;
     state.hasDrawn = true;
     updateDrawPrompt();
-    setTimeout(() => setPhase("main1"), 600);
+    setTimeout(async () => {
+      setPhase("main1");
+      await triggerEffectMonsterResponses({ type: "hand", owner: "player" }, { owner: "player" });
+    }, 600);
   }
 
   drawPromptEl?.addEventListener("click", doDraw);
@@ -6656,6 +7593,8 @@ if (lobbyEl) {
       showStatus("Finish resolving the active spell first.");
       return;
     }
+    state.effectMonsterUsesThisTurn.clear();
+    state.monsterAttackCountsThisTurn.clear();
     state.activePlayer = "ai";
     state.hasNormalSummoned = false;
     clearModeChangesFor("ai");
@@ -6828,15 +7767,19 @@ if (lobbyEl) {
     }
     const atk = cardAtk(attacker);
     if (atk <= 0) return { type: "skip", reason: "cannot-attack" };
+    if (hasMonsterFinishedAttacking("ai", attackerIdx)) return { type: "skip", reason: "already-attacked" };
     if (Number(attacker._attackRestrictedUntilTurn || 0) >= state.turn) {
       return { type: "skip", reason: "restricted" };
     }
 
     const targets = state.playerMonster
       .map((card, index) => ({ card, index }))
-      .filter((entry) => entry.card);
+      .filter((entry) => entry.card && !isProtectedFromAttackTarget("player", entry.index, "ai"));
     if (!targets.length) {
-      return { type: "direct", targetIdx: null, score: 1000 + atk, reason: "open-field" };
+      const hasAnyMonster = state.playerMonster.some(Boolean);
+      return hasAnyMonster
+        ? { type: "skip", reason: "protected-targets" }
+        : { type: "direct", targetIdx: null, score: 1000 + atk, reason: "open-field" };
     }
 
     const choices = targets
@@ -6852,7 +7795,7 @@ if (lobbyEl) {
     if (isDuelEnded()) return;
     // Draw Phase
     setPhase("draw");
-    if (!drawCard("ai")) return;
+    if (!await drawCard("ai")) return;
     if (isDuelEnded()) return;
 
     await sleep(1300);
@@ -6860,6 +7803,8 @@ if (lobbyEl) {
 
     // Main Phase 1 — try to play one card
     setPhase("main1");
+    await triggerEffectMonsterResponses({ type: "hand", owner: "ai" }, { owner: "ai" });
+    if (isDuelEnded()) return;
     let played = false;
 
     if (state.aiHand.length) {
@@ -6903,39 +7848,40 @@ if (lobbyEl) {
       await sleep(1600);
       if (isDuelEnded()) return;
     } else {
+      state.monsterAttackCountsThisTurn.clear();
       setPhase("battle");
       await sleep(1200);
       if (isDuelEnded()) return;
 
       for (let i = 0; i < 5; i++) {
         if (isDuelEnded()) return;
-        const attacker = state.aiMonster[i];
-        if (!attacker) continue;
-        if (attacker._position === "defense") continue; // defense monsters don't attack
+        while (state.aiMonster[i] && !hasMonsterFinishedAttacking("ai", i)) {
+          const attacker = state.aiMonster[i];
+          if (attacker._position === "defense") break; // defense monsters don't attack
 
-        const attackAction = chooseAiAttackAction(attacker, i);
-        if (attackAction.type === "skip") {
-          if (attackAction.reason === "restricted") {
-            showStatus(`${cardNameStr(attacker)} is restricted from attacking.`, 1200);
-            await sleep(800);
-            if (isDuelEnded()) return;
-          } else if (attackAction.reason === "no-favorable-target") {
-            showStatus(`AI keeps ${cardNameStr(attacker)} from making a risky attack.`, 1200);
-            await sleep(800);
-            if (isDuelEnded()) return;
+          const attackAction = chooseAiAttackAction(attacker, i);
+          if (attackAction.type === "skip") {
+            if (attackAction.reason === "restricted") {
+              showStatus(`${cardNameStr(attacker)} is restricted from attacking.`, 1200);
+              await sleep(800);
+              if (isDuelEnded()) return;
+            } else if (attackAction.reason === "no-favorable-target") {
+              showStatus(`AI keeps ${cardNameStr(attacker)} from making a risky attack.`, 1200);
+              await sleep(800);
+              if (isDuelEnded()) return;
+            }
+            break;
           }
-          continue;
+          const chosenTargetIdx = attackAction.type === "direct" ? null : attackAction.targetIdx;
+          await showAttackArrow(
+            monsterSlots("ai")[i],
+            attackAction.type === "direct" ? directAttackTarget("ai") : monsterSlots("player")[chosenTargetIdx]
+          );
+          if (isDuelEnded()) return;
+          if (await resolveMonsterAttack("ai", i, chosenTargetIdx)) return;
+          await sleep(1400);
+          if (isDuelEnded()) return;
         }
-        const chosenTargetIdx = attackAction.type === "direct" ? null : attackAction.targetIdx;
-        await showAttackArrow(
-          monsterSlots("ai")[i],
-          attackAction.type === "direct" ? directAttackTarget("ai") : monsterSlots("player")[chosenTargetIdx]
-        );
-        if (isDuelEnded()) return;
-        if (await resolveMonsterAttack("ai", i, chosenTargetIdx)) return;
-        await sleep(1400);
-        if (isDuelEnded()) return;
-        continue;
 
       }
     }
@@ -6951,6 +7897,9 @@ if (lobbyEl) {
     state.hasNormalSummoned = false;
     state.hasDrawn = false;
     state.monstersAttackedThisTurn.clear();
+    state.monsterAttackCountsThisTurn.clear();
+    state.effectMonsterUsesThisTurn.clear();
+    expireTemporaryMonsterEffects();
     clearModeChangesFor("player");
 
     // Give control back — player clicks the deck prompt to draw
@@ -6986,6 +7935,7 @@ if (lobbyEl) {
     state.playerLP = 0;
     state.pendingSpell = null;
     state.resolvingSpell = false;
+    state.resolvingEffectMonster = false;
     state.resolvingTrap = false;
     state.resolvingBattle = false;
     closeHandMenu();
@@ -7021,8 +7971,8 @@ if (lobbyEl) {
     state.aiLP = MAX_LP;
     state.playerHand = [];
     state.aiHand = [];
-    state.playerDeck = shuffle([...duelDeckCards]);
-    state.aiDeck = shuffle([...duelDeckCards]);
+    state.playerDeck = shuffle(duelDeckCards.map(createDuelCard));
+    state.aiDeck = shuffle(duelDeckCards.map(createDuelCard));
     state.playerGY = [];
     state.aiGY = [];
     state.playerMonster = [null, null, null, null, null];
@@ -7039,8 +7989,12 @@ if (lobbyEl) {
     state.hasNormalSummoned = false;
     state.hasDrawn = false;
     state.monstersAttackedThisTurn = new Set();
+    state.monsterAttackCountsThisTurn = new Map();
     state.monstersChangedModeThisTurn = new Set();
+    state.effectMonsterUsesThisTurn = new Set();
+    state.effectMonsterUsesEver = new Set();
     state.aiBattleRestrictedUntilTurn = 0;
+    state.resolvingEffectMonster = false;
     state.resolvingTrap = false;
     state.resolvingBattle = false;
     state.defeatedOwner = null;

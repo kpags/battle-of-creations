@@ -8161,6 +8161,49 @@ button.creator-nav-item {
   color: #fff0cf;
 }
 
+.bf-effect-prompt-panel {
+  width: min(760px, calc(100vw - 28px));
+}
+
+.bf-effect-prompt-list {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+  gap: 10px;
+  margin-top: 12px;
+}
+
+.bf-effect-choice-card {
+  min-width: 0;
+  border: 1px solid rgba(201, 168, 76, 0.36);
+  border-radius: 8px;
+  background: rgba(0, 0, 0, 0.42);
+  color: inherit;
+  cursor: pointer;
+  padding: 8px;
+  text-align: left;
+}
+
+.bf-effect-choice-card:hover,
+.bf-effect-choice-card:focus-visible {
+  border-color: rgba(255, 174, 61, 0.86);
+  box-shadow: 0 0 20px rgba(255, 145, 45, 0.24);
+  outline: none;
+}
+
+.bf-effect-choice-card .bf-trap-preview-card {
+  margin-top: 0;
+}
+
+.bf-effect-choice-meta {
+  margin-top: 6px;
+  color: rgba(247, 191, 92, 0.78);
+  font-size: 0.58rem;
+  font-weight: 900;
+  letter-spacing: 0.08em;
+  text-align: center;
+  text-transform: uppercase;
+}
+
 .bf-spell-resolve-btn {
   position: fixed;
   left: 50%;
