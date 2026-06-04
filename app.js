@@ -3442,6 +3442,8 @@ if (lobbyEl) {
 
   function cardAtk(card) { return Number(card.attackPoints  ?? card.attack  ?? 0); }
   function cardDef(card) { return Number(card.defensePoints ?? card.defense ?? 0); }
+  function baseCardAtk(card) { return Number(card?._baseAttackPoints ?? card?.attack ?? card?.attackPoints ?? 0); }
+  function baseCardDef(card) { return Number(card?._baseDefensePoints ?? card?.defense ?? card?.defensePoints ?? 0); }
   function cardLevel(card) { return Number(card.level) || 1; }
   function cardNameStr(card) { return String(card.cardName || "Unnamed"); }
   function duelCardId(card) {
@@ -3459,8 +3461,24 @@ if (lobbyEl) {
       spellEffectParams: { ...(card?.spellEffectParams || {}) },
       trapEffectParams: { ...(card?.trapEffectParams || {}) },
       imagePosition: { ...(card?.imagePosition || {}) },
+      _baseAttackPoints: Number(card?.attackPoints ?? card?.attack ?? 0),
+      _baseDefensePoints: Number(card?.defensePoints ?? card?.defense ?? 0),
       _duelUid: createId("duel-card")
     };
+  }
+  function markSpellStatBoost(card) {
+    if (!card || !isMonsterCard(card)) return;
+    if (!Number.isFinite(Number(card._baseAttackPoints))) card._baseAttackPoints = cardAtk(card);
+    if (!Number.isFinite(Number(card._baseDefensePoints))) card._baseDefensePoints = cardDef(card);
+    card._spellStatBoosted = true;
+  }
+  function resetSpellStatBoostOnRevive(card) {
+    if (!card?._spellStatBoosted) return card;
+    card.attackPoints = baseCardAtk(card);
+    card.defensePoints = baseCardDef(card);
+    delete card._spellStatBoosted;
+    delete card._temporaryStatEffects;
+    return card;
   }
   function tributeRequirement(card) {
     const level = cardLevel(card);
@@ -3528,6 +3546,7 @@ if (lobbyEl) {
     tributesSelected: [],
     hasNormalSummoned: false,
     hasDrawn: false,
+    battleEnteredThisTurn: false,
     monstersAttackedThisTurn: new Set(),
     monsterAttackCountsThisTurn: new Map(),
     monstersChangedModeThisTurn: new Set(),
@@ -4160,6 +4179,7 @@ if (lobbyEl) {
     if (!card || card._faceDown || cardTypeName(card) !== "monster") return false;
     if (state.activePlayer !== owner) return false;
     if (state.phase !== "main1" && state.phase !== "main2") return false;
+    if (state.battleEnteredThisTurn) return false;
     if (state.resolvingBattle) return false;
     return !state.monstersChangedModeThisTurn.has(modeChangeKey(owner, slotIdx));
   }
@@ -4263,30 +4283,46 @@ if (lobbyEl) {
     return Boolean(card && Number(card._attackTargetImmuneUntilTurn || 0) >= state.turn);
   }
 
-  function addModeControl(slotEl, slotIdx) {
-    const card = state.playerMonster[slotIdx];
-    if (!card || !canChangeMonsterMode("player", slotIdx)) return;
+  let attackIconPointer = null;
 
-    const control = document.createElement("div");
-    control.className = "bf-mode-toggle";
+  function updateAttackIconAim(event = null) {
+    if (event && Number.isFinite(event.clientX) && Number.isFinite(event.clientY)) {
+      attackIconPointer = { x: event.clientX, y: event.clientY };
+    }
 
-    [["ATK", "attack"], ["DEF", "defense"]].forEach(([label, position]) => {
-      const btn = document.createElement("button");
-      btn.type = "button";
-      btn.className = "bf-mode-btn";
-      btn.textContent = label;
-      btn.setAttribute("aria-label", `Change ${cardNameStr(card)} to ${position} position`);
-      btn.setAttribute("aria-pressed", card._position === position ? "true" : "false");
-      if (card._position === position) btn.classList.add("is-current");
-      btn.addEventListener("click", (event) => {
-        event.preventDefault();
-        event.stopPropagation();
-        changeMonsterMode("player", slotIdx, position);
-      });
-      control.appendChild(btn);
+    document.querySelectorAll(".bf-attack-icon").forEach((icon) => {
+      if (Number(icon.dataset.slotIdx) !== state.selectedAttackIdx || !attackIconPointer) {
+        icon.style.setProperty("--attack-icon-x", "0px");
+        icon.style.setProperty("--attack-icon-y", "0px");
+        icon.style.setProperty("--attack-icon-rot", "0deg");
+        return;
+      }
+
+      const slot = icon.closest(".bf-slot");
+      const rect = slot?.getBoundingClientRect();
+      if (!rect) return;
+
+      const centerX = rect.left + rect.width / 2;
+      const centerY = rect.top + rect.height / 2;
+      const dx = attackIconPointer.x - centerX;
+      const dy = attackIconPointer.y - centerY;
+      const radians = Math.atan2(dy, dx);
+      const distance = Math.min(1, Math.hypot(dx, dy) / Math.max(1, Math.max(rect.width, rect.height)));
+      const follow = Math.min(rect.width, rect.height) * 0.14 * distance;
+
+      icon.style.setProperty("--attack-icon-x", `${Math.cos(radians) * follow}px`);
+      icon.style.setProperty("--attack-icon-y", `${Math.sin(radians) * follow}px`);
+      icon.style.setProperty("--attack-icon-rot", `${(radians * 180 / Math.PI) + 90}deg`);
     });
+  }
 
-    slotEl.appendChild(control);
+  function addAttackIcon(slotEl, slotIdx) {
+    if (!canPlayerMonsterAttack(slotIdx)) return;
+    const icon = document.createElement("div");
+    icon.className = "bf-attack-icon";
+    icon.dataset.slotIdx = String(slotIdx);
+    icon.setAttribute("aria-hidden", "true");
+    slotEl.appendChild(icon);
   }
 
   function canPlayerMonsterAttack(slotIdx) {
@@ -4308,7 +4344,7 @@ if (lobbyEl) {
       el.onmouseleave = null;
       renderSlot(el, state.playerMonster[i], false);
       el.classList.toggle("is-attack-ready", canPlayerMonsterAttack(i));
-      addModeControl(el, i);
+      addAttackIcon(el, i);
       if (state.playerMonster[i]) {
         el.onmouseenter = () => {
           if (state.playerMonster[i]) showCardInfo(state.playerMonster[i]);
@@ -4345,6 +4381,7 @@ if (lobbyEl) {
 
     const asSlots = Array.from(aiSTZone.querySelectorAll(".bf-slot"));
     asSlots.forEach((el, i) => renderSlot(el, state.aiSpellTrap[i], !!state.aiSpellTrap[i]));
+    updateAttackIconAim();
   }
 
   function renderPlayerHand() {
@@ -4412,6 +4449,7 @@ if (lobbyEl) {
       expireTemporaryMonsterEffects({ battleOnly: true });
     }
     state.phase = phase;
+    if (phase === "battle") state.battleEnteredThisTurn = true;
     if (phase !== "battle") clearBattleSelection();
     renderPhases();
     renderField();
@@ -4922,6 +4960,7 @@ if (lobbyEl) {
         : "card";
     return chooseFieldTargetsByClick(owner, entries, maxCount, {
       targetLabel,
+      actionLabel: "Destroy",
       allowPartial: true,
       message: `Select highlighted ${targetLabel}${Math.min(maxCount, entries.length) === 1 ? "" : "s"} to destroy.`
     });
@@ -4964,6 +5003,7 @@ if (lobbyEl) {
     }
     const [monster] = collection.splice(index, 1);
     if (!monster) return null;
+    if (source === "graveyard") resetSpellStatBoostOnRevive(monster);
 
     const position = options.position || (owner === "ai" ? chooseAiSummonPosition(monster) : "attack");
     const summoned = { ...monster, _faceDown: false, _position: position };
@@ -5134,7 +5174,11 @@ if (lobbyEl) {
 
       case "return a monster card from field to opponent's hand.": {
         const targets = filteredFieldTargets(opponent, ["monster"], owner);
-        const picked = await chooseEffectTarget(owner, "Return Monster to Hand", targets);
+        const picked = await chooseOneFieldTargetByClick(owner, targets, {
+          targetLabel: "monster",
+          actionLabel: "Return",
+          message: "Select a highlighted monster to return to hand."
+        });
         if (!picked) return;
         await notifyEffectTargeted(picked, owner, card);
         await moveFieldCardToHand(picked.owner, picked.zone, picked.index);
@@ -5143,7 +5187,11 @@ if (lobbyEl) {
 
       case "return a spell/trap card from field to opponent's hand.": {
         const targets = filteredFieldTargets(opponent, ["spelltrap"], owner);
-        const picked = await chooseEffectTarget(owner, "Return Spell / Trap", targets);
+        const picked = await chooseOneFieldTargetByClick(owner, targets, {
+          targetLabel: "spell/trap card",
+          actionLabel: "Return",
+          message: "Select a highlighted spell/trap card to return to hand."
+        });
         if (!picked) return;
         await moveFieldCardToHand(picked.owner, picked.zone, picked.index);
         return;
@@ -5183,7 +5231,11 @@ if (lobbyEl) {
 
       case "reduce the attack of an opponent's faceup monster by 1000 during this turn's battle phase.": {
         const targets = filteredFieldTargets(opponent, ["monster"], owner, { faceUpOnly: true });
-        const picked = await chooseEffectTarget(owner, "Reduce Opponent ATK", targets);
+        const picked = await chooseOneFieldTargetByClick(owner, targets, {
+          targetLabel: "face-up monster",
+          actionLabel: "Apply",
+          message: "Select a highlighted face-up monster to reduce its ATK."
+        });
         if (!picked) return;
         await notifyEffectTargeted(picked, owner, card);
         addTemporaryStatEffect(picked.card, "attack", -1000, state.turn, { battleOnly: true });
@@ -5193,7 +5245,11 @@ if (lobbyEl) {
 
       case "reduce the defense of an opponent's faceup monster by 1000 during this turn's battle phase.": {
         const targets = filteredFieldTargets(opponent, ["monster"], owner, { faceUpOnly: true });
-        const picked = await chooseEffectTarget(owner, "Reduce Opponent DEF", targets);
+        const picked = await chooseOneFieldTargetByClick(owner, targets, {
+          targetLabel: "face-up monster",
+          actionLabel: "Apply",
+          message: "Select a highlighted face-up monster to reduce its DEF."
+        });
         if (!picked) return;
         await notifyEffectTargeted(picked, owner, card);
         addTemporaryStatEffect(picked.card, "defense", -1000, state.turn, { battleOnly: true });
@@ -5205,7 +5261,11 @@ if (lobbyEl) {
         const targets = ownerMonsterField(owner)
           .map((candidate, index) => ({ owner, zone: "monster", index, card: candidate }))
           .filter(({ card: candidate }) => candidate && !sameDuelCard(candidate, card));
-        const picked = await chooseEffectTarget(owner, "Choose Allied Monster", targets);
+        const picked = await chooseOneFieldTargetByClick(owner, targets, {
+          targetLabel: "monster",
+          actionLabel: "Select",
+          message: "Select a highlighted monster you control."
+        });
         if (!picked) return;
         const amount = Math.floor((cardAtk(card) + cardAtk(picked.card)) * 0.5);
         addTemporaryStatEffect(card, "attack", amount, state.turn + 1);
@@ -5601,6 +5661,7 @@ if (lobbyEl) {
         : "card";
     return chooseFieldTargetsByClick(trapOwner, entries, maxCount, {
       targetLabel,
+      actionLabel: "Destroy",
       allowPartial: true,
       message: `Select highlighted ${targetLabel}${Math.min(maxCount, entries.length) === 1 ? "" : "s"} to destroy.`
     });
@@ -5915,6 +5976,19 @@ if (lobbyEl) {
     return "";
   }
 
+  function explainModeChangeBlocked(slotIdx) {
+    const card = state.playerMonster[slotIdx];
+    if (!card || card._faceDown) return "";
+    if (state.activePlayer !== "player") return "You can only change modes during your turn.";
+    if (state.phase !== "main1" && state.phase !== "main2") return "You can change modes during your Main Phase.";
+    if (state.battleEnteredThisTurn) return "Monsters cannot change mode after the Battle Phase.";
+    if (state.resolvingBattle) return "Finish the current battle first.";
+    if (state.monstersChangedModeThisTurn.has(modeChangeKey("player", slotIdx))) {
+      return "That monster already changed mode this turn.";
+    }
+    return "";
+  }
+
   async function flipSummon(slotIdx, position) {
     if (!canFlipSummon(slotIdx)) {
       const message = explainFlipSummonBlocked(slotIdx);
@@ -6099,8 +6173,6 @@ if (lobbyEl) {
         }
         if (state.phase === "battle" && state.activePlayer === "player") {
           attackWithMonster(i);
-        } else if (!state.pendingAction && canChangeMonsterMode("player", i)) {
-          changeMonsterMode("player", i);
         } else {
           await playToSlot(state.playerMonster, i, true);
         }
@@ -6109,6 +6181,8 @@ if (lobbyEl) {
         event.preventDefault();
         if (!state.pendingAction && state.playerMonster[i]?._faceDown) {
           openFlipSummonMenu(i, slot);
+        } else if (!state.pendingAction && state.playerMonster[i]) {
+          openMonsterModeMenu(i, slot);
         }
       });
     });
@@ -6523,6 +6597,46 @@ if (lobbyEl) {
     });
   }
 
+  function openMonsterModeMenu(slotIdx, anchorEl) {
+    closeHandMenu();
+    const card = state.playerMonster[slotIdx];
+    if (!card || card._faceDown) return;
+
+    const blockedMessage = explainModeChangeBlocked(slotIdx);
+    if (!canChangeMonsterMode("player", slotIdx)) {
+      if (blockedMessage) showStatus(blockedMessage);
+      return;
+    }
+
+    const menu = document.createElement("div");
+    menu.className = "bf-hand-menu";
+    _handMenuEl = menu;
+
+    const label = document.createElement("div");
+    label.className = "bf-hand-menu-label";
+    label.textContent = "Battle Mode";
+    menu.appendChild(label);
+
+    [["Attack Position", "attack"], ["Defense Position", "defense"]].forEach(([text, position]) => {
+      const btn = document.createElement("button");
+      btn.className = "bf-hand-menu-item";
+      btn.type = "button";
+      btn.textContent = text;
+      btn.disabled = card._position === position;
+      if (btn.disabled) {
+        btn.style.opacity = "0.35";
+        btn.style.cursor = "not-allowed";
+      }
+      btn.addEventListener("click", async () => {
+        closeHandMenu();
+        changeMonsterMode("player", slotIdx, position);
+      });
+      menu.appendChild(btn);
+    });
+
+    positionContextMenu(menu, anchorEl);
+  }
+
   async function attackSelectedTarget(targetIdx) {
     if (state.activePlayer !== "player" || state.phase !== "battle") return;
     if (state.resolvingBattle) return;
@@ -6585,6 +6699,7 @@ if (lobbyEl) {
 
     state.selectedAttackIdx = slotIdx;
     highlightBattleTargets(slotIdx);
+    updateAttackIconAim();
     showStatus("Choose an opposing monster to attack", 2200);
   }
 
@@ -6843,6 +6958,7 @@ if (lobbyEl) {
   function clearBattleSelection() {
     state.selectedAttackIdx = null;
     clearAttackHighlights();
+    updateAttackIconAim();
   }
 
   // ── Slot highlights ─────────────────────────────
@@ -6996,10 +7112,11 @@ if (lobbyEl) {
     const max = selection.maxCount;
     const selected = selection.selected.length;
     const targetLabel = selection.targetLabel || "card";
+    const actionLabel = selection.actionLabel || "Resolve";
     const remaining = Math.max(0, max - selected);
     if (selected > 0 && selection.allowPartial && selected >= selection.minCount && remaining > 0) {
-      showSpellResolveButton(`Destroy ${selected} selected`, () => closeFieldSelection(currentFieldSelectionTargets(selection)));
-      showStatus(`Select ${remaining} more highlighted ${targetLabel}${remaining === 1 ? "" : "s"}, or destroy selected.`);
+      showSpellResolveButton(`${actionLabel} ${selected} selected`, () => closeFieldSelection(currentFieldSelectionTargets(selection)));
+      showStatus(`Select ${remaining} more highlighted ${targetLabel}${remaining === 1 ? "" : "s"}, or ${actionLabel.toLowerCase()} selected.`);
       return;
     }
     if (remaining > 0) {
@@ -7028,6 +7145,7 @@ if (lobbyEl) {
         minCount: Math.min(options.minCount ?? 1, limit),
         allowPartial: options.allowPartial ?? limit > 1,
         targetLabel: options.targetLabel || "card",
+        actionLabel: options.actionLabel || "Resolve",
         resolve,
         onKeydown: null
       };
@@ -7041,6 +7159,14 @@ if (lobbyEl) {
       highlightSpellTargets(entries);
       showStatus(options.message || `Select highlighted ${selection.targetLabel}${limit === 1 ? "" : "s"} to destroy.`);
     });
+  }
+
+  async function chooseOneFieldTargetByClick(owner, entries, options = {}) {
+    const selected = await chooseFieldTargetsByClick(owner, entries, 1, {
+      ...options,
+      allowPartial: false
+    });
+    return selected[0] || null;
   }
 
   function handleFieldSelectionTarget(owner, zone, index) {
@@ -7146,6 +7272,7 @@ if (lobbyEl) {
     if (pending.kind === "increase-stat") {
       const card = state.playerMonster[index];
       const amount = pending.amount || 0;
+      markSpellStatBoost(card);
       if (pending.statType === "defense") {
         card.defensePoints = cardDef(card) + amount;
       } else {
@@ -7261,6 +7388,7 @@ if (lobbyEl) {
     }
 
     const [monster] = state.playerGY.splice(gyIndex, 1);
+    resetSpellStatBoostOnRevive(monster);
     const revived = { ...monster, _faceDown: false, _position: "attack" };
     state.playerMonster[slotIdx] = revived;
     updateCounts();
@@ -7940,6 +8068,7 @@ if (lobbyEl) {
     if (event.key === "Escape" && gyDialogEl && !gyDialogEl.hidden) closeGraveyardDialog();
     if (event.key === "Escape" && _deckDialogEl) closeDeckDialog();
   });
+  document.addEventListener("pointermove", updateAttackIconAim);
 
   // End Turn button
   endTurnBtn?.addEventListener("click", () => {
@@ -7957,6 +8086,7 @@ if (lobbyEl) {
     state.monsterAttackCountsThisTurn.clear();
     state.activePlayer = "ai";
     state.hasNormalSummoned = false;
+    state.battleEnteredThisTurn = false;
     clearModeChangesFor("ai");
     state.tributesPending = 0;
     state.tributesSelected = [];
@@ -8261,6 +8391,7 @@ if (lobbyEl) {
     state.activePlayer = "player";
     state.hasNormalSummoned = false;
     state.hasDrawn = false;
+    state.battleEnteredThisTurn = false;
     state.monstersAttackedThisTurn.clear();
     state.monsterAttackCountsThisTurn.clear();
     state.effectMonsterUsesThisTurn.clear();
@@ -8385,6 +8516,7 @@ if (lobbyEl) {
     state.tributesSelected = [];
     state.hasNormalSummoned = false;
     state.hasDrawn = false;
+    state.battleEnteredThisTurn = false;
     state.monstersAttackedThisTurn = new Set();
     state.monsterAttackCountsThisTurn = new Map();
     state.monstersChangedModeThisTurn = new Set();
