@@ -6666,9 +6666,16 @@ button.creator-nav-item {
   opacity: 0.6;
 }
 
+.bf-slot.is-attack-ready {
+  border-color: rgba(255, 138, 32, 0.96) !important;
+  box-shadow: 0 0 24px rgba(255, 126, 26, 0.74), inset 0 0 20px rgba(255, 126, 26, 0.2) !important;
+  animation: bf-attack-ready-pulse 1.08s ease-in-out infinite;
+}
+
 .bf-slot.is-attack-source {
   border-color: rgba(255, 45, 45, 0.95) !important;
   box-shadow: 0 0 24px rgba(255, 45, 45, 0.72), inset 0 0 22px rgba(255, 45, 45, 0.24) !important;
+  animation: none;
 }
 
 .bf-slot.is-attack-target {
@@ -6690,6 +6697,11 @@ button.creator-nav-item {
 @keyframes bf-spell-target-pulse {
   0%,100% { filter: brightness(1); }
   50%     { filter: brightness(1.24); }
+}
+
+@keyframes bf-attack-ready-pulse {
+  0%,100% { box-shadow: 0 0 14px rgba(255,126,26,0.42), inset 0 0 12px rgba(255,126,26,0.12); }
+  50%     { box-shadow: 0 0 32px rgba(255,148,42,0.86), inset 0 0 26px rgba(255,148,42,0.28); }
 }
 
 /* Attack flash */
@@ -6774,6 +6786,54 @@ button.creator-nav-item {
   border-left: 14px solid rgba(255,36,36,0.98);
   transform: translateY(-50%);
   filter: drop-shadow(0 0 8px rgba(255,20,20,0.9));
+}
+
+.bf-trap-block-fx {
+  position: fixed;
+  inset: 0;
+  z-index: 7800;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+  pointer-events: none;
+  background: rgba(0, 0, 0, 0.72);
+  animation: bf-trap-block-backdrop 0.9s ease-out both;
+}
+
+.bf-trap-block-gif {
+  width: min(62vmin, 560px);
+  height: min(62vmin, 560px);
+  object-fit: contain;
+  background: transparent;
+  image-rendering: auto;
+  filter: drop-shadow(0 0 28px rgba(82,187,255,0.5)) drop-shadow(0 0 44px rgba(255,230,176,0.28));
+  animation: bf-trap-gif-block 0.9s ease-out both;
+}
+
+@keyframes bf-trap-block-backdrop {
+  0%   { opacity: 0; }
+  16%  { opacity: 1; }
+  78%  { opacity: 1; }
+  100% { opacity: 0; }
+}
+
+@keyframes bf-trap-gif-block {
+  0% {
+    opacity: 0;
+    transform: scale(0.72);
+  }
+  16% {
+    opacity: 1;
+  }
+  72% {
+    opacity: 1;
+    transform: scale(1);
+  }
+  100% {
+    opacity: 0;
+    transform: scale(1.08);
+  }
 }
 
 @keyframes bf-attack-arrow-pulse {
@@ -7925,6 +7985,180 @@ button.creator-nav-item {
   color: rgba(201,168,76,0.78);
   text-transform: uppercase;
   letter-spacing: 0.1em;
+}
+
+.bf-trap-prompt {
+  position: fixed;
+  inset: 0;
+  z-index: 9999;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 18px;
+  background: rgba(0, 0, 0, 0.44);
+  contain: layout paint;
+  isolation: isolate;
+}
+
+.bf-trap-prompt-panel {
+  width: min(430px, calc(100vw - 28px));
+  max-height: min(82vh, 620px);
+  overflow: auto;
+  border: 1px solid rgba(255, 120, 54, 0.58);
+  border-radius: 8px;
+  background:
+    radial-gradient(circle at 50% 0%, rgba(158, 38, 24, 0.38), transparent 62%),
+    linear-gradient(180deg, rgba(31, 8, 8, 0.98), rgba(5, 4, 3, 0.98));
+  box-shadow: 0 22px 70px rgba(0, 0, 0, 0.84), 0 0 30px rgba(255, 85, 42, 0.22);
+  color: #f5e0bf;
+  padding: 16px;
+  text-align: center;
+}
+
+.bf-trap-prompt-title {
+  color: rgba(247, 191, 92, 0.86);
+  font-size: 0.66rem;
+  font-weight: 900;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+}
+
+.bf-trap-prompt-card {
+  margin-top: 6px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: #fff2cf;
+  font-family: var(--display-font);
+  font-size: 1.02rem;
+  font-weight: 900;
+  text-align: center;
+  text-shadow: 0 0 18px rgba(255, 166, 65, 0.35);
+}
+
+.bf-trap-preview-card {
+  position: relative;
+  width: 100%;
+  margin: 10px auto 0;
+  border: 1px solid rgba(201, 168, 76, 0.48);
+  border-radius: 6px;
+  background:
+    linear-gradient(180deg, rgba(52, 12, 17, 0.96), rgba(7, 4, 3, 0.98));
+  box-shadow: 0 10px 24px rgba(0, 0, 0, 0.46), inset 0 0 18px rgba(255, 166, 65, 0.08);
+  display: grid;
+  grid-template-columns: 96px minmax(0, 1fr);
+  overflow: hidden;
+  text-align: left;
+}
+
+.bf-trap-preview-art {
+  position: relative;
+  width: 100%;
+  height: 134px;
+  background: rgba(0, 0, 0, 0.45);
+  overflow: hidden;
+}
+
+.bf-trap-preview-art .bf-art-img {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+}
+
+.bf-trap-preview-body {
+  display: grid;
+  align-content: start;
+  gap: 4px;
+  min-width: 0;
+  padding: 9px 10px;
+}
+
+.bf-trap-preview-type {
+  color: rgba(247, 191, 92, 0.82);
+  font-size: 0.58rem;
+  font-weight: 900;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+}
+
+.bf-trap-preview-type.is-spell {
+  color: rgba(104, 231, 145, 0.88);
+}
+
+.bf-trap-preview-type.is-trap {
+  color: rgba(217, 136, 255, 0.9);
+}
+
+.bf-trap-preview-name {
+  color: #fff2cf;
+  font-family: var(--display-font);
+  font-size: 0.88rem;
+  font-weight: 900;
+  line-height: 1.1;
+  overflow-wrap: anywhere;
+  text-shadow: 0 0 18px rgba(255, 166, 65, 0.35);
+}
+
+.bf-trap-preview-stats {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  color: rgba(243, 223, 188, 0.86);
+  font-size: 0.62rem;
+  font-weight: 900;
+  letter-spacing: 0.04em;
+}
+
+.bf-trap-preview-desc {
+  max-height: 58px;
+  overflow: auto;
+  color: rgba(243, 223, 188, 0.9);
+  font-size: 0.66rem;
+  line-height: 1.32;
+}
+
+.bf-trap-prompt-message {
+  margin-top: 10px;
+  color: rgba(243, 223, 188, 0.82);
+  font-size: 0.72rem;
+  line-height: 1.35;
+}
+
+.bf-trap-prompt-actions {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+  margin-top: 14px;
+}
+
+.bf-trap-prompt-btn {
+  min-width: 0;
+  min-height: 34px;
+  border: 1px solid rgba(201, 168, 76, 0.36);
+  border-radius: 6px;
+  background: rgba(0, 0, 0, 0.42);
+  color: #f0ddb8;
+  cursor: pointer;
+  font-size: 0.68rem;
+  font-weight: 900;
+  letter-spacing: 0.09em;
+  text-transform: uppercase;
+}
+
+.bf-trap-prompt-btn:hover,
+.bf-trap-prompt-btn:focus-visible {
+  border-color: rgba(255, 210, 102, 0.76);
+  box-shadow: 0 0 18px rgba(255, 179, 64, 0.24);
+  outline: none;
+}
+
+.bf-trap-prompt-btn.is-activate {
+  border-color: rgba(255, 113, 55, 0.76);
+  background: linear-gradient(180deg, rgba(116, 20, 20, 0.94), rgba(38, 7, 8, 0.94));
+  color: #fff0cf;
 }
 
 .bf-spell-resolve-btn {

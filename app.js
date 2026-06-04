@@ -3512,6 +3512,7 @@ if (lobbyEl) {
     monstersAttackedThisTurn: new Set(),
     monstersChangedModeThisTurn: new Set(),
     aiBattleRestrictedUntilTurn: 0,
+    resolvingTrap: false,
     resolvingBattle: false,
     defeatedOwner: null
   };
@@ -3637,6 +3638,8 @@ if (lobbyEl) {
   const CARD_TRAVEL_MS = 680;
   const CARD_SHATTER_MS = 640;
   const BATTLE_QUAKE_MS = 560;
+  const TRAP_BLOCK_MS = 900;
+  const BLOCK_ATTACK_GIF_SRC = "assets/gifs/block_attack.gif";
   const SPELL_EFFECT_SETTLE_MS = 260;
   const SPELL_LP_ANIM_MS = 980;
   const AI_FACE_DOWN_DEFENSE_GUESS = 1500;
@@ -3674,6 +3677,14 @@ if (lobbyEl) {
     return owner === "player" ? state.playerGY : state.aiGY;
   }
 
+  function ownerDeck(owner) {
+    return owner === "player" ? state.playerDeck : state.aiDeck;
+  }
+
+  function ownerHand(owner) {
+    return owner === "player" ? state.playerHand : state.aiHand;
+  }
+
   function ownerGraveyardSlot(owner) {
     return owner === "player" ? playerGYSlot : aiGYSlot;
   }
@@ -3705,6 +3716,16 @@ if (lobbyEl) {
   function spellParams(card) {
     return card?.spellEffectParams && typeof card.spellEffectParams === "object"
       ? card.spellEffectParams
+      : {};
+  }
+
+  function trapEffectName(card) {
+    return String(card?.trapEffect || "").trim();
+  }
+
+  function trapParams(card) {
+    return card?.trapEffectParams && typeof card.trapEffectParams === "object"
+      ? card.trapEffectParams
       : {};
   }
 
@@ -4076,12 +4097,25 @@ if (lobbyEl) {
     slotEl.appendChild(control);
   }
 
+  function canPlayerMonsterAttack(slotIdx) {
+    const card = state.playerMonster[slotIdx];
+    return Boolean(
+      card &&
+      state.activePlayer === "player" &&
+      state.phase === "battle" &&
+      !card._faceDown &&
+      card._position !== "defense" &&
+      !state.monstersAttackedThisTurn.has(slotIdx)
+    );
+  }
+
   function renderField() {
     const pmSlots = Array.from(playerMonZone.querySelectorAll(".bf-slot"));
     pmSlots.forEach((el, i) => {
       el.onmouseenter = null;
       el.onmouseleave = null;
       renderSlot(el, state.playerMonster[i], false);
+      el.classList.toggle("is-attack-ready", canPlayerMonsterAttack(i));
       addModeControl(el, i);
       if (state.playerMonster[i]) {
         el.onmouseenter = () => {
@@ -4221,6 +4255,26 @@ if (lobbyEl) {
   }
 
   // ── Select a hand card ──────────────────────────────────
+  async function drawCardVisible(player) {
+    if (player === "player") {
+      if (!state.playerDeck.length) { endGame("AI wins - you ran out of cards!"); return false; }
+      const card = state.playerDeck.shift();
+      state.playerHand.push(card);
+      renderPlayerHand();
+      updateCounts();
+      await animateDrawCard("player", card);
+      return true;
+    }
+
+    if (!state.aiDeck.length) { endGame("You win - AI ran out of cards!"); return false; }
+    const card = state.aiDeck.shift();
+    state.aiHand.push(card);
+    renderAiHand();
+    updateCounts();
+    await animateDrawCard("ai", card);
+    return true;
+  }
+
   function selectHandCard(idx) {
     if (isSpellResolutionBusy()) {
       showStatus("Finish resolving the active spell first.");
@@ -4243,6 +4297,7 @@ if (lobbyEl) {
   // ── Play a card from hand to field ─────────────────────
   let _handMenuEl = null;
   let _choiceDialogEl = null;
+  let _trapPromptEl = null;
   let _spellResolveBtnEl = null;
 
   function isPlayerMainPhase() {
@@ -4250,7 +4305,7 @@ if (lobbyEl) {
   }
 
   function isSpellResolutionBusy() {
-    return Boolean(state.resolvingSpell || state.pendingSpell);
+    return Boolean(state.resolvingSpell || state.pendingSpell || state.resolvingTrap);
   }
 
   function closeChoiceDialog() {
@@ -4336,6 +4391,599 @@ if (lobbyEl) {
     return true;
   }
 
+  function closeTrapPrompt() {
+    if (_trapPromptEl) {
+      _trapPromptEl.remove();
+      _trapPromptEl = null;
+    }
+  }
+
+  function opponentOwner(owner) {
+    return owner === "player" ? "ai" : "player";
+  }
+
+  function isTrapReady(owner, slotIdx) {
+    const card = ownerSpellTrapField(owner)[slotIdx];
+    const setTurn = Number(card?._setTurn || 0);
+    const setterTurnEnded = setTurn < state.turn || (setTurn === state.turn && state.activePlayer !== owner);
+    return Boolean(
+      card &&
+      cardTypeName(card) === "trap" &&
+      card._faceDown !== false &&
+      setterTurnEnded
+    );
+  }
+
+  function trapEventActorOwner(event) {
+    if (event.type === "attack") return event.attackerOwner;
+    if (event.type === "summon") return event.summonerOwner;
+    if (event.type === "effect") return event.effectOwner;
+    return "";
+  }
+
+  function trapEventLabel(event) {
+    if (event.type === "attack") {
+      const attacker = ownerMonsterField(event.attackerOwner)[event.attackerIdx] || event.attackerCard;
+      if (event.targetIdx === null) {
+        return `${cardNameStr(attacker)} is attacking directly.`;
+      }
+      const defender = ownerMonsterField(event.defenderOwner)[event.targetIdx] || event.defenderCard;
+      return `${cardNameStr(attacker)} is attacking ${cardNameStr(defender)}.`;
+    }
+    if (event.type === "summon") {
+      return `${controllerName(event.summonerOwner)} summoned ${cardNameStr(event.summonedCard)}.`;
+    }
+    if (event.type === "effect") {
+      return `${controllerName(event.effectOwner)} activated ${cardNameStr(event.sourceCard)}.`;
+    }
+    return "A trap can respond to this action.";
+  }
+
+  function canTrapRespondToEvent(owner, slotIdx, event) {
+    if (!isTrapReady(owner, slotIdx)) return false;
+    const card = ownerSpellTrapField(owner)[slotIdx];
+    const effect = trapEffectName(card);
+    const actorOwner = trapEventActorOwner(event);
+    if (!actorOwner || actorOwner !== opponentOwner(owner)) return false;
+
+    if (event.type === "attack") {
+      if (event.attackerOwner !== actorOwner) return false;
+      if (effect === "boost-on-attack") {
+        return event.targetIdx !== null
+          && event.defenderOwner === owner
+          && Boolean(ownerMonsterField(owner)[event.targetIdx]);
+      }
+      return [
+        "negate-attack",
+        "negate-attack-damage",
+        "destroy-on-attack",
+        "decrease-attacker"
+      ].includes(effect);
+    }
+
+    if (event.type === "summon") {
+      const kind = event.summonKind || "normal";
+      if (effect === "destroy-on-summon") return kind === "normal" || kind === "special";
+      if (effect === "destroy-weaker") return ["normal", "special", "flip"].includes(kind);
+      if (effect === "negate-summon") return ["normal", "special", "flip"].includes(kind);
+      return false;
+    }
+
+    if (event.type === "effect") {
+      return [
+        "negate-effect",
+        "negate-effect-destroy",
+        "destroy-on-effect"
+      ].includes(effect);
+    }
+
+    return false;
+  }
+
+  function eligibleTrapEntries(owner, event) {
+    return ownerSpellTrapField(owner)
+      .map((card, slotIdx) => ({ owner, slotIdx, card }))
+      .filter((entry) => entry.card && canTrapRespondToEvent(owner, entry.slotIdx, event));
+  }
+
+  function trapHasUsefulAiOutcome(entry, event) {
+    const effect = trapEffectName(entry.card);
+    if (["negate-attack", "negate-attack-damage", "decrease-attacker", "negate-summon", "negate-effect", "negate-effect-destroy"].includes(effect)) {
+      return true;
+    }
+    if (effect === "boost-on-attack") {
+      return event.targetIdx !== null && Boolean(ownerMonsterField(entry.owner)[event.targetIdx]);
+    }
+    if (effect === "destroy-on-attack") {
+      return ownerMonsterField(event.attackerOwner).some((card, index) => card && index !== event.attackerIdx);
+    }
+    if (effect === "destroy-on-summon") {
+      return ownerMonsterField(event.summonerOwner).some((card, index) => card && index !== event.summonedIdx);
+    }
+    if (effect === "destroy-weaker") {
+      const summoned = ownerMonsterField(event.summonerOwner)[event.summonedIdx];
+      if (!summoned) return false;
+      const otherExists = ownerMonsterField(event.summonerOwner).some((card, index) => (
+        card && index !== event.summonedIdx
+      ));
+      const weaker = ownerMonsterField(event.summonerOwner).some((card, index) => (
+        card && index !== event.summonedIdx && cardAtk(card) < cardAtk(summoned)
+      ));
+      return weaker || !otherExists;
+    }
+    if (effect === "destroy-on-effect") {
+      return ownerMonsterField(event.effectOwner).some(Boolean);
+    }
+    return false;
+  }
+
+  function promptTrapActivation(entry, event) {
+    closeTrapPrompt();
+
+    return new Promise((resolve) => {
+      const dialog = document.createElement("div");
+      dialog.className = "bf-trap-prompt";
+      dialog.setAttribute("role", "dialog");
+      dialog.setAttribute("aria-modal", "true");
+      dialog.setAttribute("aria-label", `Activate trap ${cardNameStr(entry.card)}?`);
+
+      const panel = document.createElement("div");
+      panel.className = "bf-trap-prompt-panel";
+
+      const title = document.createElement("div");
+      title.className = "bf-trap-prompt-title";
+      title.textContent = "Activate Trap?";
+
+      const cardName = document.createElement("div");
+      cardName.className = "bf-trap-prompt-card";
+      cardName.textContent = cardNameStr(entry.card);
+
+      const cardPreview = createTrapPromptCard(entry.card);
+
+      const message = document.createElement("div");
+      message.className = "bf-trap-prompt-message";
+      message.textContent = trapEventLabel(event);
+
+      const actions = document.createElement("div");
+      actions.className = "bf-trap-prompt-actions";
+
+      const activateBtn = document.createElement("button");
+      activateBtn.type = "button";
+      activateBtn.className = "bf-trap-prompt-btn is-activate";
+      activateBtn.textContent = "Activate";
+
+      const skipBtn = document.createElement("button");
+      skipBtn.type = "button";
+      skipBtn.className = "bf-trap-prompt-btn";
+      skipBtn.textContent = "Skip";
+
+      const cleanup = (answer) => {
+        closeTrapPrompt();
+        document.removeEventListener("keydown", onKeydown);
+        resolve(answer);
+      };
+
+      function onKeydown(eventKey) {
+        if (eventKey.key === "Escape") cleanup(false);
+      }
+
+      activateBtn.addEventListener("click", () => cleanup(true));
+      skipBtn.addEventListener("click", () => cleanup(false));
+      document.addEventListener("keydown", onKeydown);
+
+      actions.append(activateBtn, skipBtn);
+      panel.append(title, cardName, cardPreview, message, actions);
+      dialog.appendChild(panel);
+      document.body.appendChild(dialog);
+      _trapPromptEl = dialog;
+      window.setTimeout(() => activateBtn.focus(), 20);
+    });
+  }
+
+  function promptTrapDecision(titleText, messageText, confirmText = "Select", cancelText = "Resolve") {
+    closeTrapPrompt();
+
+    return new Promise((resolve) => {
+      const dialog = document.createElement("div");
+      dialog.className = "bf-trap-prompt";
+      dialog.setAttribute("role", "dialog");
+      dialog.setAttribute("aria-modal", "true");
+
+      const panel = document.createElement("div");
+      panel.className = "bf-trap-prompt-panel";
+
+      const title = document.createElement("div");
+      title.className = "bf-trap-prompt-title";
+      title.textContent = titleText;
+
+      const message = document.createElement("div");
+      message.className = "bf-trap-prompt-message";
+      message.textContent = messageText;
+
+      const actions = document.createElement("div");
+      actions.className = "bf-trap-prompt-actions";
+
+      const confirmBtn = document.createElement("button");
+      confirmBtn.type = "button";
+      confirmBtn.className = "bf-trap-prompt-btn is-activate";
+      confirmBtn.textContent = confirmText;
+
+      const cancelBtn = document.createElement("button");
+      cancelBtn.type = "button";
+      cancelBtn.className = "bf-trap-prompt-btn";
+      cancelBtn.textContent = cancelText;
+
+      const cleanup = (answer) => {
+        closeTrapPrompt();
+        document.removeEventListener("keydown", onKeydown);
+        resolve(answer);
+      };
+
+      function onKeydown(eventKey) {
+        if (eventKey.key === "Escape") cleanup(false);
+      }
+
+      confirmBtn.addEventListener("click", () => cleanup(true));
+      cancelBtn.addEventListener("click", () => cleanup(false));
+      document.addEventListener("keydown", onKeydown);
+
+      actions.append(confirmBtn, cancelBtn);
+      panel.append(title, message, actions);
+      dialog.appendChild(panel);
+      document.body.appendChild(dialog);
+      _trapPromptEl = dialog;
+      window.setTimeout(() => confirmBtn.focus(), 20);
+    });
+  }
+
+  function chooseCardEntry(title, entries) {
+    return new Promise((resolve) => {
+      const opened = openCardChoiceDialog(title, entries, (entry) => resolve(entry), () => resolve(null));
+      if (!opened) resolve(null);
+    });
+  }
+
+  function createTrapPromptCard(card) {
+    const preview = document.createElement("article");
+    preview.className = "bf-trap-preview-card";
+
+    const type = cardTypeName(card);
+    const isMonster = type === "monster";
+
+    const art = makeArtEl(card, "bf-trap-preview-art");
+    preview.appendChild(art);
+
+    const body = document.createElement("div");
+    body.className = "bf-trap-preview-body";
+
+    const typeEl = document.createElement("div");
+    typeEl.className = `bf-trap-preview-type is-${type}`;
+    typeEl.textContent = cardTypeLabel(card);
+    body.appendChild(typeEl);
+
+    const nameEl = document.createElement("div");
+    nameEl.className = "bf-trap-preview-name";
+    nameEl.textContent = cardNameStr(card);
+    body.appendChild(nameEl);
+
+    if (isMonster) {
+      const stats = document.createElement("div");
+      stats.className = "bf-trap-preview-stats";
+      stats.innerHTML = `<span>LV ${cardLevel(card)}</span><span>ATK ${cardAtk(card)}</span><span>DEF ${cardDef(card)}</span>`;
+      body.appendChild(stats);
+    }
+
+    const desc = document.createElement("div");
+    desc.className = "bf-trap-preview-desc";
+    desc.textContent = card.shortDescription || card.spellEffectDescription || card.trapEffectDescription
+      || card.effectDescription || card.effect || "No effect text has been written for this card.";
+    body.appendChild(desc);
+
+    preview.appendChild(body);
+    return preview;
+  }
+
+  async function chooseTrapTargets(trapOwner, trapCard, entries, maxCount, title) {
+    const limit = Math.min(maxCount, entries.length);
+    if (limit <= 0) return [];
+
+    if (trapOwner !== "player") {
+      return [...entries]
+        .sort((a, b) => cardAtk(b.card) - cardAtk(a.card))
+        .slice(0, limit);
+    }
+
+    const selected = [];
+    let remaining = [...entries];
+    while (selected.length < limit && remaining.length) {
+      const label = limit === 1 ? title : `${title} (${selected.length + 1}/${limit})`;
+      const picked = await chooseCardEntry(label, remaining);
+      if (!picked) break;
+
+      selected.push(picked);
+      remaining = remaining.filter((entry) => targetKey(entry) !== targetKey(picked));
+
+      if (selected.length < limit && remaining.length) {
+        const keepSelecting = await promptTrapDecision(
+          cardNameStr(trapCard),
+          "Select another monster for this trap?",
+          "Select Another",
+          "Resolve"
+        );
+        if (!keepSelecting) break;
+      }
+    }
+
+    return selected;
+  }
+
+  async function destroyTrapTargets(targets) {
+    for (const target of targets) {
+      if (!fieldForZone(target.owner, target.zone)[target.index]) continue;
+      await destroyFieldCardToGraveyard(target.owner, target.zone, target.index, {
+        faceDown: target.zone === "spelltrap"
+      });
+    }
+  }
+
+  async function moveFieldMonsterToDestination(owner, slotIdx, destination) {
+    const field = ownerMonsterField(owner);
+    const card = field[slotIdx];
+    if (!card) return false;
+
+    const fromRect = readRect(monsterSlots(owner)[slotIdx]);
+    field[slotIdx] = null;
+
+    let targetEl = null;
+    if (destination === "deck") {
+      ownerDeck(owner).unshift(card);
+      targetEl = ownerDeckPile(owner);
+    } else {
+      ownerHand(owner).push(card);
+      if (owner === "player") renderPlayerHand();
+      else renderAiHand();
+      targetEl = ownerHandEl(owner)?.lastElementChild || ownerHandEl(owner);
+    }
+
+    renderField();
+    updateCounts();
+    await animateCardMove(card, fromRect, targetEl, destination === "deck" ? "is-to-deck" : "is-draw", {
+      faceDown: owner === "ai" && destination !== "deck"
+    });
+    return true;
+  }
+
+  async function resolveTrapEffect(entry, event) {
+    const card = entry.card;
+    const effect = trapEffectName(card);
+    const params = trapParams(card);
+    const outcome = {};
+
+    switch (effect) {
+      case "negate-attack":
+        outcome.cancelAttack = true;
+        await animateTrapShieldBlock(event);
+        showStatus(`${cardNameStr(card)} stopped the attack.`, 1800);
+        break;
+
+      case "negate-attack-damage": {
+        const attacker = ownerMonsterField(event.attackerOwner)[event.attackerIdx] || event.attackerCard;
+        const damage = Math.max(0, cardAtk(attacker));
+        outcome.cancelAttack = true;
+        await animateTrapShieldBlock(event);
+        await Promise.all([
+          quakeOwnerField(event.attackerOwner),
+          adjustLife(event.attackerOwner, damage)
+        ]);
+        showStatus(`${cardNameStr(card)} stopped the attack and dealt ${damage} damage.`, 2000);
+        break;
+      }
+
+      case "destroy-on-summon": {
+        const maxTargets = boundedNumber(params.destroyCount, 1, 1, 2);
+        const targets = ownerMonsterField(event.summonerOwner)
+          .map((targetCard, index) => ({ owner: event.summonerOwner, zone: "monster", index, card: targetCard }))
+          .filter((target) => target.card && target.index !== event.summonedIdx);
+        const selected = await chooseTrapTargets(entry.owner, card, targets, maxTargets, "Destroy Opponent's Monster");
+        if (!selected.length) {
+          showStatus(`${cardNameStr(card)} found no other opponent monsters to destroy.`, 1800);
+          break;
+        }
+        await destroyTrapTargets(selected);
+        showStatus(`${cardNameStr(card)} destroyed ${selected.length} monster${selected.length === 1 ? "" : "s"}.`, 1800);
+        break;
+      }
+
+      case "destroy-on-attack": {
+        const targets = ownerMonsterField(event.attackerOwner)
+          .map((targetCard, index) => ({ owner: event.attackerOwner, zone: "monster", index, card: targetCard }))
+          .filter((target) => target.card && target.index !== event.attackerIdx);
+        const selected = await chooseTrapTargets(entry.owner, card, targets, 1, "Destroy Opponent's Monster");
+        if (!selected.length) {
+          showStatus(`${cardNameStr(card)} found no other opponent monster to destroy.`, 1800);
+          break;
+        }
+        await destroyTrapTargets(selected);
+        showStatus(`${cardNameStr(card)} destroyed ${cardNameStr(selected[0].card)}.`, 1800);
+        break;
+      }
+
+      case "destroy-weaker": {
+        const summoned = ownerMonsterField(event.summonerOwner)[event.summonedIdx];
+        if (!summoned) break;
+        const summonedAtk = cardAtk(summoned);
+        const otherTargets = ownerMonsterField(event.summonerOwner)
+          .map((targetCard, index) => ({ owner: event.summonerOwner, zone: "monster", index, card: targetCard }))
+          .filter((target) => target.card && target.index !== event.summonedIdx);
+        const weakerTargets = otherTargets.filter((target) => cardAtk(target.card) < summonedAtk);
+
+        if (weakerTargets.length) {
+          await destroyTrapTargets(weakerTargets);
+          showStatus(`${cardNameStr(card)} destroyed ${weakerTargets.length} weaker monster${weakerTargets.length === 1 ? "" : "s"}.`, 1800);
+        } else if (!otherTargets.length) {
+          await destroyFieldCardToGraveyard(event.summonerOwner, "monster", event.summonedIdx);
+          outcome.summonedRemoved = true;
+          showStatus(`${cardNameStr(card)} destroyed the summoned monster instead.`, 1800);
+        } else {
+          showStatus(`${cardNameStr(card)} found no weaker monsters to destroy.`, 1800);
+        }
+        break;
+      }
+
+      case "negate-effect":
+        outcome.negateEffect = true;
+        showStatus(`${cardNameStr(card)} negated ${cardNameStr(event.sourceCard)}.`, 1800);
+        break;
+
+      case "negate-effect-destroy":
+        outcome.negateEffect = true;
+        outcome.destroyEffectSource = true;
+        if (event.sourceZone && Number.isInteger(event.sourceIdx)) {
+          const sourceOwner = event.sourceOwner || event.effectOwner;
+          const sourceField = fieldForZone(sourceOwner, event.sourceZone);
+          if (sourceField[event.sourceIdx] === event.sourceCard) {
+            await destroyFieldCardToGraveyard(sourceOwner, event.sourceZone, event.sourceIdx, {
+              faceDown: event.sourceZone === "spelltrap"
+            });
+          }
+        }
+        showStatus(`${cardNameStr(card)} negated and destroyed ${cardNameStr(event.sourceCard)}.`, 1900);
+        break;
+
+      case "destroy-on-effect": {
+        const targets = ownerMonsterField(event.effectOwner)
+          .map((targetCard, index) => ({ owner: event.effectOwner, zone: "monster", index, card: targetCard }))
+          .filter((target) => target.card);
+        const selected = await chooseTrapTargets(entry.owner, card, targets, 1, "Destroy Opponent's Monster");
+        if (!selected.length) {
+          showStatus(`${cardNameStr(card)} found no monster to destroy.`, 1800);
+          break;
+        }
+        await destroyTrapTargets(selected);
+        showStatus(`${cardNameStr(card)} destroyed ${cardNameStr(selected[0].card)}.`, 1800);
+        break;
+      }
+
+      case "negate-summon": {
+        const destination = params.summonDest === "deck" ? "deck" : "hand";
+        const moved = await moveFieldMonsterToDestination(event.summonerOwner, event.summonedIdx, destination);
+        if (moved) {
+          outcome.negateSummon = true;
+          outcome.summonedRemoved = true;
+          showStatus(`${cardNameStr(card)} returned the summoned monster to the ${destination}.`, 1900);
+        }
+        break;
+      }
+
+      case "boost-on-attack": {
+        const target = ownerMonsterField(entry.owner)[event.targetIdx];
+        if (!target) break;
+        const statType = params.statType === "defense" ? "defense" : "attack";
+        const amount = statType === "defense"
+          ? boundedNumber(params.defBoost, 100, 0, 700)
+          : boundedNumber(params.atkBoost, 100, 0, 500);
+        if (statType === "defense") target.defensePoints = cardDef(target) + amount;
+        else target.attackPoints = cardAtk(target) + amount;
+        target._justModeChanged = true;
+        renderField();
+        showStatus(`${cardNameStr(card)} gave ${cardNameStr(target)} ${amount} ${statType === "defense" ? "DEF" : "ATK"}.`, 1800);
+        break;
+      }
+
+      case "decrease-attacker": {
+        const attacker = ownerMonsterField(event.attackerOwner)[event.attackerIdx];
+        if (!attacker) break;
+        const amount = boundedNumber(params.atkDecrease, 100, 0, 500);
+        attacker.attackPoints = Math.max(0, cardAtk(attacker) - amount);
+        attacker._justModeChanged = true;
+        renderField();
+        showStatus(`${cardNameStr(card)} lowered ${cardNameStr(attacker)} by ${amount} ATK.`, 1800);
+        break;
+      }
+
+      default:
+        showStatus(`${cardNameStr(card)} has no trap effect selected.`, 1600);
+    }
+
+    return outcome;
+  }
+
+  function mergeTrapOutcome(result, outcome) {
+    if (!outcome) return result;
+    Object.keys(outcome).forEach((key) => {
+      result[key] = result[key] || outcome[key];
+    });
+    return result;
+  }
+
+  async function activateTrap(entry, event) {
+    const field = ownerSpellTrapField(entry.owner);
+    if (field[entry.slotIdx] !== entry.card) return {};
+
+    const card = entry.card;
+    card._faceDown = false;
+    card._justFlipped = true;
+    renderField();
+    showStatus(`${controllerName(entry.owner)} activated ${cardNameStr(card)}!`, 1600);
+    await sleep(220);
+
+    const outcome = await resolveTrapEffect(entry, event);
+
+    if (field[entry.slotIdx] === card) {
+      await sendFieldCardToGraveyard(entry.owner, "spelltrap", entry.slotIdx, { faceDown: false });
+    }
+    updateCounts();
+    renderField();
+    return outcome;
+  }
+
+  async function triggerTrapResponses(event) {
+    const actorOwner = trapEventActorOwner(event);
+    const trapOwner = opponentOwner(actorOwner);
+    if (!actorOwner || isDuelEnded()) return {};
+
+    const result = {};
+    const promptedKeys = new Set();
+    state.resolvingTrap = true;
+
+    try {
+      while (!isDuelEnded()) {
+        const entries = eligibleTrapEntries(trapOwner, event)
+          .filter((entry) => !promptedKeys.has(`${entry.owner}:${entry.slotIdx}`));
+        if (!entries.length) break;
+
+        let selected = null;
+        for (const entry of entries) {
+          const key = `${entry.owner}:${entry.slotIdx}`;
+          if (trapOwner === "player") {
+            const shouldActivate = await promptTrapActivation(entry, event);
+            promptedKeys.add(key);
+            if (shouldActivate) {
+              selected = entry;
+              break;
+            }
+          } else {
+            promptedKeys.add(key);
+            if (trapHasUsefulAiOutcome(entry, event)) {
+              selected = entry;
+              break;
+            }
+          }
+        }
+
+        if (!selected) break;
+        const outcome = await activateTrap(selected, event);
+        mergeTrapOutcome(result, outcome);
+        if (result.cancelAttack || result.negateEffect || result.negateSummon) break;
+      }
+    } finally {
+      state.resolvingTrap = false;
+    }
+
+    if (state.defeatedOwner) endGame(defeatMessage(state.defeatedOwner));
+    return result;
+  }
+
   function canFlipSummon(slotIdx) {
     const card = state.playerMonster[slotIdx];
     return Boolean(card && card._faceDown && isPlayerMainPhase() && Number(card._setTurn || 0) < state.turn);
@@ -4349,7 +4997,7 @@ if (lobbyEl) {
     return "";
   }
 
-  function flipSummon(slotIdx, position) {
+  async function flipSummon(slotIdx, position) {
     if (!canFlipSummon(slotIdx)) {
       const message = explainFlipSummonBlocked(slotIdx);
       if (message) showStatus(message);
@@ -4364,6 +5012,7 @@ if (lobbyEl) {
     closeHandMenu();
     renderField();
     showStatus(`${cardNameStr(card)} was flip summoned in ${position === "attack" ? "Attack" : "Defense"} Position!`, 1700);
+    await resolveSummonTrapResponses("player", slotIdx, card, "flip");
   }
 
   function openFlipSummonMenu(slotIdx, anchorEl) {
@@ -4388,7 +5037,9 @@ if (lobbyEl) {
       btn.className = "bf-hand-menu-item";
       btn.type = "button";
       btn.textContent = text;
-      btn.addEventListener("click", () => flipSummon(slotIdx, position));
+      btn.addEventListener("click", async () => {
+        await flipSummon(slotIdx, position);
+      });
       menu.appendChild(btn);
     });
 
@@ -4415,7 +5066,33 @@ if (lobbyEl) {
       : "attack";
   }
 
-  function playToSlot(fieldArr, slotIdx, isMonsterZone) {
+  function canSetMonsterFaceDown(card) {
+    return isMonsterCard(card) && cardLevel(card) <= 4;
+  }
+
+  function summonKindForAction(action) {
+    if (action === "set-monster") return "set";
+    if (isNormalSummonAction(action)) return "normal";
+    if (action === "special-summon-atk" || action === "special-summon-def") return "special";
+    return "";
+  }
+
+  function shouldTriggerSummonTraps(action) {
+    return isNormalSummonAction(action) || action === "special-summon-atk" || action === "special-summon-def";
+  }
+
+  async function resolveSummonTrapResponses(summonerOwner, slotIdx, summonedCard, summonKind) {
+    if (!summonedCard || summonKind === "set") return {};
+    return triggerTrapResponses({
+      type: "summon",
+      summonerOwner,
+      summonedIdx: slotIdx,
+      summonedCard,
+      summonKind
+    });
+  }
+
+  async function playToSlot(fieldArr, slotIdx, isMonsterZone) {
     if (state.activePlayer !== "player") return;
     if (state.phase !== "main1" && state.phase !== "main2") {
       showStatus("You can only play cards during a Main Phase"); return;
@@ -4438,6 +5115,10 @@ if (lobbyEl) {
     if (isMonsterZone && (isNormalSummonAction(action) || action === "set-monster") && state.hasNormalSummoned) {
       showStatus("You can only Normal Summon or Set once per turn"); return;
     }
+    if (isMonsterZone && action === "set-monster" && !canSetMonsterFaceDown(card)) {
+      showStatus("Level 5 or higher monsters cannot be Set face-down.");
+      return;
+    }
 
     const faceDown = action === "set-monster" || action === "set-spell" || action === "set-trap";
     const position = actionSummonPosition(action);
@@ -4445,7 +5126,7 @@ if (lobbyEl) {
     const fromRect = readRect(handCardEl);
 
     const playedCard = { ...card, _faceDown: faceDown, _position: position };
-    if (action === "set-monster") playedCard._setTurn = state.turn;
+    if (faceDown) playedCard._setTurn = state.turn;
     fieldArr[slotIdx] = playedCard;
     state.playerHand.splice(state.selectedHandIdx, 1);
     state.selectedHandIdx = null;
@@ -4456,7 +5137,11 @@ if (lobbyEl) {
     renderField();
     renderPlayerHand();
     const zoneSlots = isMonsterZone ? monsterSlots("player") : Array.from(playerSTZone.querySelectorAll(".bf-slot"));
-    animatePlaceCard(playedCard, fromRect, zoneSlots[slotIdx], faceDown);
+    await animatePlaceCard(playedCard, fromRect, zoneSlots[slotIdx], faceDown);
+
+    if (isMonsterZone && shouldTriggerSummonTraps(action)) {
+      await resolveSummonTrapResponses("player", slotIdx, playedCard, summonKindForAction(action));
+    }
   }
 
   // ── Attach slot click listeners ─────────────────────────
@@ -4490,7 +5175,7 @@ if (lobbyEl) {
         } else if (!state.pendingAction && canChangeMonsterMode("player", i)) {
           changeMonsterMode("player", i);
         } else {
-          playToSlot(state.playerMonster, i, true);
+          await playToSlot(state.playerMonster, i, true);
         }
       });
     });
@@ -4504,7 +5189,11 @@ if (lobbyEl) {
           await activateSpellFromField(i);
           return;
         }
-        playToSlot(state.playerSpellTrap, i, false);
+        await playToSlot(state.playerSpellTrap, i, false);
+      });
+      slot.addEventListener("contextmenu", (event) => {
+        event.preventDefault();
+        openFieldSpellTrapMenu(i, slot);
       });
     });
 
@@ -4674,6 +5363,24 @@ if (lobbyEl) {
     return sleep(ATTACK_ARROW_MS);
   }
 
+  function animateTrapShieldBlock(event) {
+    const fx = document.createElement("div");
+    fx.className = "bf-trap-block-fx";
+
+    const gif = document.createElement("img");
+    gif.className = "bf-trap-block-gif";
+    gif.src = `${BLOCK_ATTACK_GIF_SRC}?v=${Date.now()}`;
+    gif.alt = "";
+    gif.decoding = "async";
+    gif.loading = "eager";
+    gif.draggable = false;
+    fx.appendChild(gif);
+    document.body.appendChild(fx);
+
+    setTimeout(() => fx.remove(), TRAP_BLOCK_MS);
+    return sleep(TRAP_BLOCK_MS);
+  }
+
   function controllerName(owner) {
     return owner === "player" ? "You" : "AI";
   }
@@ -4773,7 +5480,29 @@ if (lobbyEl) {
     const attacker = attackerField[attackerIdx];
     if (!attacker) return false;
 
-    const atk = cardAtk(attacker);
+    const trapResult = await triggerTrapResponses({
+      type: "attack",
+      attackerOwner,
+      attackerIdx,
+      attackerCard: attacker,
+      defenderOwner,
+      targetIdx,
+      defenderCard: targetIdx === null ? null : defenderField[targetIdx]
+    });
+    if (trapResult.cancelAttack) {
+      if (attackerOwner === "player") state.monstersAttackedThisTurn.add(attackerIdx);
+      renderField();
+      updateCounts();
+      return Boolean(state.defeatedOwner);
+    }
+    if (state.defeatedOwner) return true;
+    if (!attackerField[attackerIdx]) {
+      renderField();
+      updateCounts();
+      return false;
+    }
+
+    const atk = cardAtk(attackerField[attackerIdx]);
     const defender = targetIdx === null ? null : defenderField[targetIdx];
 
     if (defender) {
@@ -5099,7 +5828,7 @@ if (lobbyEl) {
 
     const slot = spellTrapSlots("player")[slotIdx];
     await animatePlaceCard(activatedCard, sourceRect, slot, false);
-    return { card: activatedCard, sourceRect: readRect(slot) || sourceRect, source: "field", slotIdx, fromHand: true };
+    return { card: activatedCard, sourceRect: readRect(slot) || sourceRect, source: "field", owner: "player", zone: "spelltrap", slotIdx, fromHand: true };
   }
 
   function spellActivationContextFromField(slotIdx) {
@@ -5114,7 +5843,7 @@ if (lobbyEl) {
     clearCardInfo();
     renderField();
     updateCounts();
-    return { card, sourceRect, source: "field", slotIdx };
+    return { card, sourceRect, source: "field", owner: "player", zone: "spelltrap", slotIdx };
   }
 
   async function finishSpellActivation(context, message = "", options = {}) {
@@ -5131,7 +5860,9 @@ if (lobbyEl) {
       } else {
         await sleep(options.settleMs ?? SPELL_EFFECT_SETTLE_MS);
       }
-      await sendActivatedSpellToGraveyard(context);
+      if (!options.skipGraveyard) {
+        await sendActivatedSpellToGraveyard(context);
+      }
       if (state.defeatedOwner) endGame(defeatMessage(state.defeatedOwner));
     } finally {
       state.resolvingSpell = false;
@@ -5309,7 +6040,14 @@ if (lobbyEl) {
     renderPlayerHand();
     renderField();
     await animatePlaceCard(summoned, pending.handRect, monsterSlots("player")[slotIdx], false);
-    await finishSpellActivation(pending.context, `${cardNameStr(summoned)} was special summoned by ${cardNameStr(pending.context.card)}.`);
+    await resolveSummonTrapResponses("player", slotIdx, summoned, "special");
+    const stillSummoned = state.playerMonster[slotIdx] === summoned;
+    await finishSpellActivation(
+      pending.context,
+      stillSummoned
+        ? `${cardNameStr(summoned)} was special summoned by ${cardNameStr(pending.context.card)}.`
+        : `${cardNameStr(summoned)} was answered by a trap.`
+    );
     return true;
   }
 
@@ -5334,7 +6072,14 @@ if (lobbyEl) {
     updateCounts();
     renderField();
     await animatePlaceCard(revived, playerGYSlot, monsterSlots("player")[slotIdx], false);
-    await finishSpellActivation(pending.context, `${cardNameStr(revived)} was revived to the field.`);
+    await resolveSummonTrapResponses("player", slotIdx, revived, "special");
+    const stillRevived = state.playerMonster[slotIdx] === revived;
+    await finishSpellActivation(
+      pending.context,
+      stillRevived
+        ? `${cardNameStr(revived)} was revived to the field.`
+        : `${cardNameStr(revived)} was answered by a trap.`
+    );
     return true;
   }
 
@@ -5365,6 +6110,28 @@ if (lobbyEl) {
     const effect = spellEffectName(card);
     const params = spellParams(card);
 
+    if (effect) {
+      const trapResult = await triggerTrapResponses({
+        type: "effect",
+        effectOwner: context.owner || "player",
+        sourceOwner: context.owner || "player",
+        sourceZone: context.zone || "spelltrap",
+        sourceIdx: context.slotIdx,
+        sourceCard: card,
+        sourceWillGoToGraveyard: true
+      });
+      if (state.defeatedOwner) {
+        state.resolvingSpell = false;
+        return;
+      }
+      if (trapResult.negateEffect) {
+        await finishSpellActivation(context, `${cardNameStr(card)} was negated by a trap.`, {
+          skipGraveyard: Boolean(trapResult.destroyEffectSource)
+        });
+        return;
+      }
+    }
+
     switch (effect) {
       case "special-summon": {
         const eligibleHandIndexes = eligibleSpellSummonHandIndexes();
@@ -5381,11 +6148,12 @@ if (lobbyEl) {
         const count = boundedNumber(params.drawCount, 1, 1, 5);
         let drawn = 0;
         for (let i = 0; i < count; i++) {
-          if (!drawCard("player")) break;
+          if (!await drawCardVisible("player")) break;
           drawn++;
+          if (i + 1 < count) await sleep(180);
         }
         await finishSpellActivation(context, `${cardNameStr(card)} drew ${drawn} card${drawn === 1 ? "" : "s"}.`, {
-          settleMs: drawn ? CARD_TRAVEL_MS + 80 : SPELL_EFFECT_SETTLE_MS
+          settleMs: drawn ? 180 : SPELL_EFFECT_SETTLE_MS
         });
         return;
       }
@@ -5527,14 +6295,101 @@ if (lobbyEl) {
       showStatus("Finish resolving the active spell first.");
       return;
     }
+    if (!isPlayerMainPhase()) {
+      showStatus("You can activate spell cards during your Main Phase.");
+      return;
+    }
     const card = state.playerSpellTrap[slotIdx];
     if (!card || cardTypeName(card) !== "spell") return;
     await activateSpellContext(spellActivationContextFromField(slotIdx));
   }
 
   // ── Hand card context menu ───────────────────────────────
+  async function activateTrapFromField(slotIdx) {
+    if (isSpellResolutionBusy()) {
+      showStatus("Finish resolving the active spell or trap first.");
+      return;
+    }
+    const card = state.playerSpellTrap[slotIdx];
+    if (!card || cardTypeName(card) !== "trap") return;
+    if (!isTrapReady("player", slotIdx)) {
+      showStatus("That trap can be activated after the turn it was Set.");
+      return;
+    }
+    showStatus(`${cardNameStr(card)} is ready and will activate when its trigger happens.`, 2200);
+  }
+
+  async function sendFieldSpellTrapToGraveyard(slotIdx) {
+    if (isSpellResolutionBusy()) {
+      showStatus("Finish resolving the active spell or trap first.");
+      return;
+    }
+    const card = state.playerSpellTrap[slotIdx];
+    if (!card) return;
+    await sendFieldCardToGraveyard("player", "spelltrap", slotIdx, {
+      faceDown: Boolean(card._faceDown)
+    });
+    showStatus(`${cardNameStr(card)} was sent to the graveyard.`, 1600);
+  }
+
   function closeHandMenu() {
     if (_handMenuEl) { _handMenuEl.remove(); _handMenuEl = null; }
+  }
+
+  function openFieldSpellTrapMenu(slotIdx, anchorEl) {
+    closeHandMenu();
+    if (state.activePlayer !== "player") return;
+    if (isSpellResolutionBusy()) {
+      showStatus("Finish resolving the active spell or trap first.");
+      return;
+    }
+    const card = state.playerSpellTrap[slotIdx];
+    if (!card) return;
+
+    const type = cardTypeName(card);
+    const menu = document.createElement("div");
+    menu.className = "bf-hand-menu";
+    _handMenuEl = menu;
+
+    const label = document.createElement("div");
+    label.className = "bf-hand-menu-label";
+    label.textContent = type === "trap" ? "Trap Actions" : "Spell Actions";
+    menu.appendChild(label);
+
+    function item(text, onClick, cls = "") {
+      const btn = document.createElement("button");
+      btn.type = "button";
+      btn.className = "bf-hand-menu-item" + (cls ? " " + cls : "");
+      btn.textContent = text;
+      btn.addEventListener("click", async () => {
+        closeHandMenu();
+        await onClick();
+      });
+      return btn;
+    }
+
+    menu.appendChild(item("Activate", async () => {
+      if (type === "spell") {
+        await activateSpellFromField(slotIdx);
+      } else if (type === "trap") {
+        await activateTrapFromField(slotIdx);
+      }
+    }));
+    menu.appendChild(item("Send to Graveyard", async () => {
+      await sendFieldSpellTrapToGraveyard(slotIdx);
+    }, "is-danger"));
+
+    document.body.appendChild(menu);
+    const rect = anchorEl.getBoundingClientRect();
+    const mw = menu.offsetWidth;
+    let left = rect.left + rect.width / 2 - mw / 2;
+    left = Math.max(4, Math.min(left, window.innerWidth - mw - 4));
+    menu.style.left = left + "px";
+    menu.style.top = rect.top + "px";
+    menu.style.transform = "translateY(calc(-100% - 6px))";
+    requestAnimationFrame(() => {
+      document.addEventListener("click", closeHandMenu, { once: true });
+    });
   }
 
   function openHandCardMenu(idx, anchorEl) {
@@ -5557,6 +6412,11 @@ if (lobbyEl) {
       btn.addEventListener("click", () => { closeHandMenu(); doCardAction(action, idx); });
       return btn;
     }
+    function disableMenuButton(btn) {
+      btn.disabled = true;
+      btn.style.opacity = "0.35";
+      btn.style.cursor = "not-allowed";
+    }
     function sep() { const d = document.createElement("div"); d.className = "bf-hand-menu-sep"; return d; }
     function lbl(text) { const d = document.createElement("div"); d.className = "bf-hand-menu-label"; d.textContent = text; return d; }
 
@@ -5574,14 +6434,13 @@ if (lobbyEl) {
         const nsDefBtn = item(`Normal Summon DEF${nsSuffix}`, "normal-summon-def");
         const setBtn = item("Set Face-Down", "set-monster");
         if (alreadySummoned || !canTribute) {
-          [nsAtkBtn, nsDefBtn].forEach((btn) => {
-            btn.disabled = true;
-            btn.style.opacity = "0.35";
-            btn.style.cursor = "not-allowed";
-          });
+          [nsAtkBtn, nsDefBtn].forEach(disableMenuButton);
         }
-        if (alreadySummoned) {
-          setBtn.disabled = true; setBtn.style.opacity = "0.35"; setBtn.style.cursor = "not-allowed";
+        if (alreadySummoned || !canSetMonsterFaceDown(card)) {
+          disableMenuButton(setBtn);
+          if (!alreadySummoned && !canSetMonsterFaceDown(card)) {
+            setBtn.title = "Level 5 or higher monsters cannot be Set face-down.";
+          }
         }
         menu.appendChild(nsAtkBtn);
         menu.appendChild(nsDefBtn);
@@ -5643,6 +6502,10 @@ if (lobbyEl) {
     if (!inMain) { showStatus("You can only play cards during a Main Phase"); return; }
     if (action === "activate-spell") {
       activateSpellFromHand(handIdx);
+      return;
+    }
+    if (action === "set-monster" && !canSetMonsterFaceDown(card)) {
+      showStatus("Level 5 or higher monsters cannot be Set face-down.");
       return;
     }
 
@@ -5716,6 +6579,11 @@ if (lobbyEl) {
       const current = phaseOrder.indexOf(state.phase);
       const target  = phaseOrder.indexOf(btn.dataset.bfPhase);
 
+      if (state.phase === "draw" && !state.hasDrawn && btn.dataset.bfPhase !== "draw") {
+        showStatus("Draw a card before moving to another phase.");
+        return;
+      }
+
       if (target <= current) return; // can't go backwards
 
       // First turn of the game: no Battle Phase
@@ -5727,10 +6595,13 @@ if (lobbyEl) {
       // Handle draw phase manually if user clicks Draw Phase
       if (btn.dataset.bfPhase === "draw") return;
 
+      if (btn.dataset.bfPhase === "battle") {
+        state.monstersAttackedThisTurn.clear();
+      }
+
       setPhase(btn.dataset.bfPhase);
 
       if (btn.dataset.bfPhase === "battle") {
-        state.monstersAttackedThisTurn.clear();
         showStatus("Battle Phase — click your monsters to attack!", 3000);
       }
       if (btn.dataset.bfPhase === "main2") {
@@ -5825,7 +6696,7 @@ if (lobbyEl) {
     return cardDef(card) > cardAtk(card) ? "defense" : "attack";
   }
 
-  function aiNormalSummon(handIdx) {
+  async function aiNormalSummon(handIdx) {
     const card = state.aiHand[handIdx];
     if (!card || !canAiNormalSummon(card)) return false;
 
@@ -5853,9 +6724,10 @@ if (lobbyEl) {
     const position = chooseAiSummonPosition(summonedCard);
     state.aiMonster[emptyMon] = { ...summonedCard, _faceDown: false, _position: position };
     state.hasNormalSummoned = true;
-    requestAnimationFrame(() => {
-      animatePlaceCard(state.aiMonster[emptyMon], fromRect, monsterSlots("ai")[emptyMon], false);
-    });
+    renderField();
+    renderAiHand();
+    updateCounts();
+    await animatePlaceCard(state.aiMonster[emptyMon], fromRect, monsterSlots("ai")[emptyMon], false);
     const positionLabel = position === "attack" ? "Attack" : "Defense";
 
     if (required > 0) {
@@ -5863,6 +6735,7 @@ if (lobbyEl) {
     } else {
       showStatus(`AI summons ${cardNameStr(summonedCard)} in ${positionLabel} Position!`, 1400);
     }
+    await resolveSummonTrapResponses("ai", emptyMon, state.aiMonster[emptyMon] || summonedCard, "normal");
     return true;
   }
 
@@ -5996,12 +6869,12 @@ if (lobbyEl) {
       const emptyST  = state.aiSpellTrap.indexOf(null);
 
       if (monIdx >= 0) {
-        played = aiNormalSummon(monIdx);
+        played = await aiNormalSummon(monIdx);
       }
       if (!played && stIdx >= 0 && emptyST >= 0) {
         const fromRect = readRect(aiHandEl?.querySelectorAll(".bf-ai-hand-card")[stIdx]);
         const [card] = state.aiHand.splice(stIdx, 1);
-        state.aiSpellTrap[emptyST] = { ...card };
+        state.aiSpellTrap[emptyST] = { ...card, _faceDown: true, _setTurn: state.turn };
         requestAnimationFrame(() => {
           animatePlaceCard(state.aiSpellTrap[emptyST], fromRect, Array.from(aiSTZone.querySelectorAll(".bf-slot"))[emptyST], true);
         });
@@ -6099,6 +6972,7 @@ if (lobbyEl) {
   function endGame(msg) {
     state.activePlayer = "none";
     state.phase = "end";
+    closeTrapPrompt();
     renderPhases();
     if (endTurnBtn) endTurnBtn.disabled = true;
     updateSurrenderButton();
@@ -6112,9 +6986,11 @@ if (lobbyEl) {
     state.playerLP = 0;
     state.pendingSpell = null;
     state.resolvingSpell = false;
+    state.resolvingTrap = false;
     state.resolvingBattle = false;
     closeHandMenu();
     closeChoiceDialog();
+    closeTrapPrompt();
     closeSpellResolveButton();
     closeGraveyardDialog();
     clearSlotHighlights();
@@ -6130,6 +7006,7 @@ if (lobbyEl) {
     duelDeckCards = [...cards];
     closeHandMenu();
     closeChoiceDialog();
+    closeTrapPrompt();
     closeSpellResolveButton();
     closeGraveyardDialog();
     clearSlotHighlights();
@@ -6164,6 +7041,7 @@ if (lobbyEl) {
     state.monstersAttackedThisTurn = new Set();
     state.monstersChangedModeThisTurn = new Set();
     state.aiBattleRestrictedUntilTurn = 0;
+    state.resolvingTrap = false;
     state.resolvingBattle = false;
     state.defeatedOwner = null;
 
