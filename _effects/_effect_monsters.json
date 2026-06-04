@@ -13,6 +13,10 @@
       "label": "If you normal/special summoned a monster"
     },
     {
+      "value": "If you normal/special summoned a monster, excluding this monster card",
+      "label": "If you normal/special summoned a monster, excluding this monster card"
+    },
+    {
       "value": "If this monster is normal/special summoned",
       "label": "If this monster is normal/special summoned"
     },

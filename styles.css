@@ -7419,6 +7419,147 @@ button.creator-nav-item {
   color: rgba(200,180,130,0.52);
 }
 
+.bf-deck-dialog .bf-gy-dialog-panel {
+  width: min(920px, calc(100vw - 36px));
+}
+
+.bf-deck-view-wrap {
+  min-height: 0;
+  overflow: auto;
+  padding: 14px;
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(158px, 1fr));
+  gap: 12px;
+}
+
+.bf-deck-view-card {
+  position: relative;
+  min-width: 0;
+  min-height: 278px;
+  border: 1px solid rgba(201,168,76,0.34);
+  border-radius: 7px;
+  background:
+    radial-gradient(circle at 50% 0%, rgba(201,168,76,0.08), transparent 7rem),
+    linear-gradient(180deg, rgba(29, 16, 7, 0.98), rgba(5, 4, 3, 0.98));
+  color: #f1e5cf;
+  cursor: pointer;
+  display: grid;
+  grid-template-rows: 148px minmax(0, 1fr);
+  padding: 7px;
+  text-align: left;
+  box-shadow: inset 0 0 18px rgba(0,0,0,0.36);
+}
+
+.bf-deck-view-card:hover,
+.bf-deck-view-card:focus-visible {
+  border-color: rgba(255, 199, 82, 0.82);
+  box-shadow: 0 0 22px rgba(255, 172, 48, 0.24), inset 0 0 18px rgba(255, 172, 48, 0.08);
+  outline: none;
+}
+
+.bf-deck-view-card.is-spell {
+  background:
+    radial-gradient(circle at 50% 0%, rgba(83, 219, 126, 0.08), transparent 7rem),
+    linear-gradient(180deg, rgba(6, 28, 12, 0.98), rgba(4, 6, 3, 0.98));
+}
+
+.bf-deck-view-card.is-trap {
+  background:
+    radial-gradient(circle at 50% 0%, rgba(192, 95, 230, 0.1), transparent 7rem),
+    linear-gradient(180deg, rgba(24, 7, 31, 0.98), rgba(5, 3, 6, 0.98));
+}
+
+.bf-deck-view-number {
+  position: absolute;
+  top: 7px;
+  left: 7px;
+  z-index: 2;
+  min-width: 22px;
+  border: 1px solid rgba(201,168,76,0.4);
+  border-radius: 5px;
+  background: rgba(0,0,0,0.68);
+  color: #f1d99f;
+  font-size: 0.58rem;
+  font-weight: 900;
+  line-height: 1;
+  padding: 5px 4px;
+  text-align: center;
+}
+
+.bf-deck-view-art {
+  position: relative;
+  width: 100%;
+  height: 100%;
+  border: 1px solid rgba(201,168,76,0.24);
+  border-radius: 5px;
+  background: rgba(0,0,0,0.5);
+  overflow: hidden;
+}
+
+.bf-deck-view-art .bf-art-img {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+}
+
+.bf-deck-view-body {
+  min-width: 0;
+  display: grid;
+  align-content: start;
+  gap: 4px;
+  padding: 7px 2px 0;
+}
+
+.bf-deck-view-name {
+  color: #fff2cf;
+  font-family: var(--display-font);
+  font-size: 0.78rem;
+  font-weight: 900;
+  line-height: 1.12;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+
+.bf-deck-view-type {
+  font-size: 0.56rem;
+  font-weight: 900;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+}
+
+.bf-deck-view-type.is-monster { color: rgba(220,130,40,0.92); }
+.bf-deck-view-type.is-spell   { color: rgba(60,210,120,0.92); }
+.bf-deck-view-type.is-trap    { color: rgba(180,80,220,0.92); }
+
+.bf-deck-view-stats {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  color: rgba(201,168,76,0.86);
+  font-size: 0.58rem;
+  font-weight: 900;
+}
+
+.bf-deck-view-desc {
+  max-height: 42px;
+  overflow: hidden;
+  color: rgba(241,229,207,0.72);
+  font-size: 0.58rem;
+  line-height: 1.22;
+}
+
+.bf-deck-view-empty {
+  grid-column: 1 / -1;
+  padding: 28px 16px;
+  color: rgba(200,180,130,0.52);
+  text-align: center;
+}
+
 @media (max-width: 640px) {
   .bf-gy-dialog {
     padding: 10px;
@@ -7445,6 +7586,17 @@ button.creator-nav-item {
   .bf-gy-table th,
   .bf-gy-table td {
     padding: 8px 10px;
+  }
+
+  .bf-deck-view-wrap {
+    grid-template-columns: repeat(auto-fill, minmax(136px, 1fr));
+    gap: 10px;
+    padding: 10px;
+  }
+
+  .bf-deck-view-card {
+    min-height: 248px;
+    grid-template-rows: 128px minmax(0, 1fr);
   }
 }
 
@@ -7483,6 +7635,48 @@ button.creator-nav-item {
 
 .bf-deck-pile::after {
   content: none;
+}
+
+.bf-deck-pile.is-shuffling {
+  animation: bf-deck-pile-shuffle 1s ease-in-out both;
+}
+
+.bf-deck-pile.is-shuffling::before {
+  animation: bf-deck-card-shuffle-a 1s ease-in-out both;
+}
+
+.bf-deck-pile.is-shuffling::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+  pointer-events: none;
+  opacity: 0.72;
+  border-radius: inherit;
+  background: url("assets/icons/default_card_image_back.png") center / cover no-repeat;
+  animation: bf-deck-card-shuffle-b 1s ease-in-out both;
+}
+
+@keyframes bf-deck-pile-shuffle {
+  0%, 100% { transform: translateX(0) rotate(0deg); filter: brightness(1); }
+  16% { transform: translateX(-4px) rotate(-2deg); filter: brightness(1.12); }
+  34% { transform: translateX(5px) rotate(2.4deg); }
+  52% { transform: translateX(-3px) rotate(-1.8deg); filter: brightness(1.18); }
+  72% { transform: translateX(4px) rotate(1.4deg); }
+}
+
+@keyframes bf-deck-card-shuffle-a {
+  0%, 100% { transform: translate(0, 0) rotate(0deg); }
+  20% { transform: translate(-11px, 2px) rotate(-8deg); }
+  44% { transform: translate(9px, -2px) rotate(7deg); }
+  68% { transform: translate(-6px, 1px) rotate(-5deg); }
+}
+
+@keyframes bf-deck-card-shuffle-b {
+  0%, 100% { transform: translate(0, 0) rotate(0deg); }
+  18% { transform: translate(12px, -3px) rotate(9deg); }
+  42% { transform: translate(-10px, 2px) rotate(-7deg); }
+  70% { transform: translate(7px, -1px) rotate(5deg); }
 }
 
 .bf-deck-pile > .bf-slot-label,
