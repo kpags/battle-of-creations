@@ -3523,6 +3523,7 @@ if (lobbyEl) {
   const state = {
     turn: 1,
     activePlayer: "player",   // "player" | "ai" | "none"
+    startingPlayer: "player",
     phase: "draw",            // draw | main1 | battle | main2 | end
     playerLP: 8000,
     aiLP: 8000,
@@ -3560,6 +3561,9 @@ if (lobbyEl) {
     defeatedOwner: null
   };
   let duelDeckCards = [];
+  let duelSetupDecks = [];
+  let duelSetupCardMap = {};
+  let selectedDuelDeckId = "";
 
   // ── DOM references ────────────────────────────────────────
   const $ = (sel) => document.querySelector(sel);
@@ -3601,6 +3605,359 @@ if (lobbyEl) {
   const resultSubtitleEl = $("[data-result-subtitle]");
   const resultRematchBtn = $("[data-result-rematch]");
   const resultExitBtn    = $("[data-result-exit]");
+
+  function duelDeckName(deck) {
+    return String(deck?.name || deck?.deckName || "Unnamed Deck");
+  }
+
+  function duelDeckCardIds(deck) {
+    return Array.isArray(deck?.cardIds) ? deck.cardIds : [];
+  }
+
+  function duelDeckCardsFor(deck, cardMap = duelSetupCardMap) {
+    return duelDeckCardIds(deck)
+      .map((id) => cardMap[id])
+      .filter(Boolean);
+  }
+
+  function duelDeckComposition(cards) {
+    return cards.reduce((counts, card) => {
+      const type = cardTypeName(card);
+      counts[type] = (counts[type] || 0) + 1;
+      return counts;
+    }, { monster: 0, spell: 0, trap: 0 });
+  }
+
+  function duelDeckSavedLabel(deck) {
+    const raw = deck?.savedAt || deck?.updatedAt || deck?.createdAt;
+    if (!raw) return "-";
+    const date = new Date(raw);
+    if (Number.isNaN(date.getTime())) return "-";
+    return date.toLocaleDateString(undefined, { month: "short", day: "numeric", year: "numeric" });
+  }
+
+  function removePreDuelOverlay(overlay, onKeydown) {
+    if (onKeydown) document.removeEventListener("keydown", onKeydown);
+    overlay?.remove();
+  }
+
+  function createPreDuelOverlay(panelClass = "") {
+    const overlay = document.createElement("div");
+    overlay.className = "bf-preduel-overlay";
+    overlay.setAttribute("role", "dialog");
+    overlay.setAttribute("aria-modal", "true");
+
+    const panel = document.createElement("div");
+    panel.className = `bf-preduel-panel ${panelClass}`.trim();
+    overlay.appendChild(panel);
+    document.body.appendChild(overlay);
+    requestAnimationFrame(() => overlay.classList.add("is-open"));
+    return { overlay, panel };
+  }
+
+  function appendPreDuelHead(panel, kickerText, titleText) {
+    const head = document.createElement("div");
+    head.className = "bf-preduel-head";
+
+    const kicker = document.createElement("div");
+    kicker.className = "bf-preduel-kicker";
+    kicker.textContent = kickerText;
+
+    const title = document.createElement("h2");
+    title.className = "bf-preduel-title";
+    title.textContent = titleText;
+
+    head.append(kicker, title);
+    panel.appendChild(head);
+    return head;
+  }
+
+  function promptDuelDeckChoice(decks, cardMap) {
+    return new Promise((resolve) => {
+      const validDecks = decks.filter((deck) => duelDeckCardsFor(deck, cardMap).length > 0);
+      let selectedId = validDecks.some((deck) => deck.id === selectedDuelDeckId)
+        ? selectedDuelDeckId
+        : validDecks[0]?.id || "";
+      const { overlay, panel } = createPreDuelOverlay("bf-deck-choice-panel");
+      overlay.setAttribute("aria-label", "Choose duel deck");
+      appendPreDuelHead(panel, "Duel Setup", "Choose Your Deck");
+
+      const wrap = document.createElement("div");
+      wrap.className = "bf-preduel-table-wrap";
+      const table = document.createElement("table");
+      table.className = "bf-preduel-deck-table";
+      table.innerHTML = `
+        <thead>
+          <tr>
+            <th scope="col">Deck</th>
+            <th scope="col">Cards</th>
+            <th scope="col">Mon</th>
+            <th scope="col">Spell</th>
+            <th scope="col">Trap</th>
+            <th scope="col">Saved</th>
+            <th scope="col" class="is-select">Pick</th>
+          </tr>
+        </thead>
+      `;
+
+      const tbody = document.createElement("tbody");
+      decks.forEach((deck) => {
+        const cards = duelDeckCardsFor(deck, cardMap);
+        const counts = duelDeckComposition(cards);
+        const disabled = cards.length === 0;
+        const row = document.createElement("tr");
+        row.className = disabled ? "is-disabled" : "";
+        row.dataset.deckId = deck.id || "";
+
+        const nameTd = document.createElement("td");
+        nameTd.className = "bf-preduel-deck-name";
+        nameTd.textContent = duelDeckName(deck);
+
+        const countTd = document.createElement("td");
+        countTd.textContent = String(cards.length);
+
+        const monsterTd = document.createElement("td");
+        monsterTd.textContent = String(counts.monster || 0);
+
+        const spellTd = document.createElement("td");
+        spellTd.textContent = String(counts.spell || 0);
+
+        const trapTd = document.createElement("td");
+        trapTd.textContent = String(counts.trap || 0);
+
+        const savedTd = document.createElement("td");
+        savedTd.textContent = duelDeckSavedLabel(deck);
+
+        const pickTd = document.createElement("td");
+        pickTd.className = "bf-preduel-pick-cell";
+        const label = document.createElement("label");
+        label.className = "bf-deck-choice-check";
+        const input = document.createElement("input");
+        input.className = "bf-deck-choice-input";
+        input.type = "radio";
+        input.name = "duel-deck-choice";
+        input.value = deck.id || "";
+        input.disabled = disabled;
+        input.checked = !disabled && deck.id === selectedId;
+        input.setAttribute("aria-label", `Use ${duelDeckName(deck)}`);
+        const mark = document.createElement("span");
+        mark.className = "bf-deck-choice-mark";
+        label.append(input, mark);
+        pickTd.appendChild(label);
+
+        function selectRow() {
+          if (disabled) return;
+          selectedId = deck.id || "";
+          tbody.querySelectorAll("tr").forEach((tr) => tr.classList.toggle("is-selected", tr.dataset.deckId === selectedId));
+          tbody.querySelectorAll(".bf-deck-choice-input").forEach((radio) => {
+            radio.checked = radio.value === selectedId;
+          });
+          startBtn.disabled = !selectedId;
+        }
+
+        row.addEventListener("click", selectRow);
+        row.addEventListener("keydown", (event) => {
+          if (event.key !== "Enter" && event.key !== " ") return;
+          event.preventDefault();
+          selectRow();
+        });
+        input.addEventListener("change", selectRow);
+        if (!disabled) row.tabIndex = 0;
+        row.classList.toggle("is-selected", !disabled && deck.id === selectedId);
+        row.append(nameTd, countTd, monsterTd, spellTd, trapTd, savedTd, pickTd);
+        tbody.appendChild(row);
+      });
+
+      table.appendChild(tbody);
+      wrap.appendChild(table);
+
+      if (!validDecks.length) {
+        const empty = document.createElement("div");
+        empty.className = "bf-preduel-empty";
+        empty.textContent = "No playable decks found.";
+        wrap.appendChild(empty);
+      }
+
+      const actions = document.createElement("div");
+      actions.className = "bf-preduel-actions";
+
+      const homeBtn = document.createElement("button");
+      homeBtn.type = "button";
+      homeBtn.className = "bf-preduel-btn";
+      homeBtn.textContent = "Home";
+      homeBtn.addEventListener("click", () => {
+        removePreDuelOverlay(overlay, onKeydown);
+        resolve(null);
+      });
+
+      const startBtn = document.createElement("button");
+      startBtn.type = "button";
+      startBtn.className = "bf-preduel-btn is-primary";
+      startBtn.textContent = "Continue";
+      startBtn.disabled = !selectedId;
+      startBtn.addEventListener("click", () => {
+        const deck = decks.find((candidate) => candidate.id === selectedId);
+        const cards = duelDeckCardsFor(deck, cardMap);
+        if (!deck || !cards.length) return;
+        selectedDuelDeckId = selectedId;
+        removePreDuelOverlay(overlay, onKeydown);
+        resolve({ deck, cards });
+      });
+
+      actions.append(homeBtn, startBtn);
+      panel.append(wrap, actions);
+
+      function onKeydown(event) {
+        if (event.key === "Escape") homeBtn.focus();
+      }
+
+      document.addEventListener("keydown", onKeydown);
+      window.setTimeout(() => {
+        const selectedRow = panel.querySelector("tr.is-selected");
+        if (selectedRow) selectedRow.focus();
+        else homeBtn.focus();
+      }, 60);
+    });
+  }
+
+  const RPS_CHOICES = ["rock", "paper", "scissors"];
+  const RPS_BEATS = { rock: "scissors", paper: "rock", scissors: "paper" };
+
+  function rpsLabel(choice) {
+    return choice ? choice.charAt(0).toUpperCase() + choice.slice(1) : "";
+  }
+
+  function rpsWinner(playerChoice, aiChoice) {
+    if (playerChoice === aiChoice) return "tie";
+    return RPS_BEATS[playerChoice] === aiChoice ? "player" : "ai";
+  }
+
+  function promptRockPaperScissors() {
+    return new Promise((resolve) => {
+      const { overlay, panel } = createPreDuelOverlay("bf-rps-panel");
+      overlay.setAttribute("aria-label", "Rock paper scissors");
+      appendPreDuelHead(panel, "First Turn", "Rock Paper Scissors");
+
+      const arena = document.createElement("div");
+      arena.className = "bf-rps-arena";
+
+      const playerToken = document.createElement("div");
+      playerToken.className = "bf-rps-token";
+      playerToken.innerHTML = `<span>You</span><strong>?</strong>`;
+
+      const versus = document.createElement("div");
+      versus.className = "bf-rps-versus";
+      versus.textContent = "VS";
+
+      const aiToken = document.createElement("div");
+      aiToken.className = "bf-rps-token";
+      aiToken.innerHTML = `<span>AI</span><strong>?</strong>`;
+
+      arena.append(playerToken, versus, aiToken);
+
+      const choices = document.createElement("div");
+      choices.className = "bf-rps-choices";
+      const result = document.createElement("div");
+      result.className = "bf-rps-result";
+      result.textContent = "Choose your sign.";
+
+      let busy = false;
+      RPS_CHOICES.forEach((choice) => {
+        const btn = document.createElement("button");
+        btn.type = "button";
+        btn.className = "bf-rps-choice";
+        btn.dataset.rpsChoice = choice;
+        btn.innerHTML = `<span>${choice.charAt(0).toUpperCase()}</span><strong>${rpsLabel(choice)}</strong>`;
+        btn.addEventListener("click", () => {
+          if (busy) return;
+          busy = true;
+          choices.querySelectorAll("button").forEach((button) => { button.disabled = true; });
+          const aiChoice = RPS_CHOICES[Math.floor(Math.random() * RPS_CHOICES.length)];
+          const winner = rpsWinner(choice, aiChoice);
+          playerToken.querySelector("strong").textContent = rpsLabel(choice);
+          aiToken.querySelector("strong").textContent = rpsLabel(aiChoice);
+
+          if (winner === "tie") {
+            result.textContent = `Both chose ${rpsLabel(choice)}. Try again.`;
+            window.setTimeout(() => {
+              playerToken.querySelector("strong").textContent = "?";
+              aiToken.querySelector("strong").textContent = "?";
+              result.textContent = "Choose again.";
+              busy = false;
+              choices.querySelectorAll("button").forEach((button) => { button.disabled = false; });
+            }, 900);
+            return;
+          }
+
+          result.textContent = winner === "player"
+            ? `You chose ${rpsLabel(choice)}. AI chose ${rpsLabel(aiChoice)}. You choose who goes first.`
+            : `You chose ${rpsLabel(choice)}. AI chose ${rpsLabel(aiChoice)}. AI chooses who goes first.`;
+          window.setTimeout(() => {
+            removePreDuelOverlay(overlay);
+            resolve(winner);
+          }, 1250);
+        });
+        choices.appendChild(btn);
+      });
+
+      panel.append(arena, choices, result);
+      window.setTimeout(() => choices.querySelector("button")?.focus(), 60);
+    });
+  }
+
+  function promptPlayerFirstChoice() {
+    return new Promise((resolve) => {
+      const { overlay, panel } = createPreDuelOverlay("bf-first-player-panel");
+      overlay.setAttribute("aria-label", "Choose who goes first");
+      appendPreDuelHead(panel, "RPS Winner", "Choose First Player");
+
+      const message = document.createElement("div");
+      message.className = "bf-preduel-message";
+      message.textContent = "You won the throw. Choose who takes the first turn.";
+
+      const actions = document.createElement("div");
+      actions.className = "bf-first-player-options";
+
+      [["You Go First", "player"], ["AI Goes First", "ai"]].forEach(([label, owner]) => {
+        const btn = document.createElement("button");
+        btn.type = "button";
+        btn.className = "bf-preduel-btn is-primary";
+        btn.textContent = label;
+        btn.addEventListener("click", () => {
+          removePreDuelOverlay(overlay);
+          resolve(owner);
+        });
+        actions.appendChild(btn);
+      });
+
+      panel.append(message, actions);
+      window.setTimeout(() => actions.querySelector("button")?.focus(), 60);
+    });
+  }
+
+  function promptAiFirstChoice() {
+    return new Promise((resolve) => {
+      const { overlay, panel } = createPreDuelOverlay("bf-first-player-panel");
+      overlay.setAttribute("aria-label", "AI chooses who goes first");
+      appendPreDuelHead(panel, "RPS Winner", "AI Chooses First");
+
+      const message = document.createElement("div");
+      message.className = "bf-preduel-message";
+      message.textContent = "AI won the throw and chooses to go first.";
+
+      panel.appendChild(message);
+      window.setTimeout(() => {
+        removePreDuelOverlay(overlay);
+        resolve("ai");
+      }, 1300);
+    });
+  }
+
+  async function chooseStartingPlayerAfterRps(winner) {
+    if (winner === "player") return promptPlayerFirstChoice();
+    return promptAiFirstChoice();
+  }
+
   // Card info pane
   const cardInfoEl      = $("[data-card-info]");
   const ciArtEl         = $("[data-ci-art]");
@@ -3682,6 +4039,7 @@ if (lobbyEl) {
   const CARD_SHATTER_MS = 640;
   const BATTLE_QUAKE_MS = 560;
   const TRAP_BLOCK_MS = 900;
+  const TRAP_REVEAL_MS = 920;
   const BLOCK_ATTACK_GIF_SRC = "assets/gifs/block_attack.gif";
   const SPELL_EFFECT_SETTLE_MS = 260;
   const SPELL_LP_ANIM_MS = 980;
@@ -3806,6 +4164,16 @@ if (lobbyEl) {
 
   function trapEffectName(card) {
     return String(card?.trapEffect || "").trim();
+  }
+
+  function isNegatingTrapEffect(effect) {
+    return [
+      "negate-attack",
+      "negate-attack-damage",
+      "negate-summon",
+      "negate-effect",
+      "negate-effect-destroy"
+    ].includes(effect);
   }
 
   function trapParams(card) {
@@ -4653,6 +5021,11 @@ if (lobbyEl) {
     return normalizeEffectText(cardEffectOutcome(card));
   }
 
+  const EFFECT_MONSTER_COMBINED_ATTACK_BOOST =
+    "select another monster you control and increase this monster's attack by 50% of the combined attack points for 2 turns.";
+  const EFFECT_MONSTER_DESTROY_OPPONENT_MONSTER =
+    "destroy an opponent's monster in the field.";
+
   function effectMonsterParams(card) {
     return effectParamsFromCard(card);
   }
@@ -4735,15 +5108,20 @@ if (lobbyEl) {
   function effectMonsterRespondsToEvent(entry, event) {
     if (!canUseEffectMonster(entry)) return false;
     const outcome = effectMonsterOutcome(entry.card);
+    const owner = entry.owner;
+    if (
+      outcome === EFFECT_MONSTER_COMBINED_ATTACK_BOOST &&
+      (entry.location !== "field" || !ownerMonsterField(owner).some((card) => card && !sameDuelCard(card, entry.card)))
+    ) {
+      return false;
+    }
     const summonOnlyOutcomes = new Set([
       "this monster can attack twice during this turn's battle phase.",
-      "select another monster you control and increase this monster's attack by 50% of the combined attack points for 2 turns.",
       "this monster cannot be targeted by card effects for 2 turns after summon (including the turn it was summoned).",
       "this monster cannot be targeted by an attack for 2 turns after summon (including the turn it was summoned)."
     ]);
     if (summonOnlyOutcomes.has(outcome) && event.type !== "summon") return false;
     const cause = effectMonsterCause(entry.card);
-    const owner = entry.owner;
     const opponent = opponentOwner(owner);
     const exactSource = (card) => sameDuelCard(entry.card, card);
     const fieldSource = entry.location === "field";
@@ -5073,6 +5451,33 @@ if (lobbyEl) {
     return destroyed.length;
   }
 
+  function isAttackedDestroyOpponentMonsterCombo(entry, triggerEvent) {
+    return Boolean(
+      triggerEvent?.type === "attack" &&
+      triggerEvent.targetIdx !== null &&
+      triggerEvent.defenderOwner === entry.owner &&
+      Number(triggerEvent.targetIdx) === Number(entry.index) &&
+      sameDuelCard(triggerEvent.defenderCard, entry.card) &&
+      effectMonsterCause(entry.card) === "if this monster is attacked by the opponent" &&
+      effectMonsterOutcome(entry.card) === EFFECT_MONSTER_DESTROY_OPPONENT_MONSTER
+    );
+  }
+
+  async function destroyAttackedMonsterAfterEffect(entry, triggerEvent) {
+    const field = ownerMonsterField(entry.owner);
+    const current = field[entry.index];
+    if (!current || !sameDuelCard(current, entry.card)) return false;
+
+    triggerEvent.defenderDestroyedByEffectMonster = true;
+    await sendMonsterToGraveyard(entry.owner, entry.index, {
+      shatter: true,
+      destroyerOwner: triggerEvent.attackerOwner,
+      sourceCard: triggerEvent.attackerCard
+    });
+    triggerEvent.defenderDestroyedByEffectMonster = true;
+    return true;
+  }
+
   async function notifyCardsDestroyedBy(destroyerOwner, destroyedEntries, sourceCard = null) {
     const grouped = {};
     destroyedEntries.filter(Boolean).forEach((entry) => {
@@ -5150,7 +5555,7 @@ if (lobbyEl) {
         return;
       }
 
-      case "destroy an opponent's monster in the field.": {
+      case EFFECT_MONSTER_DESTROY_OPPONENT_MONSTER: {
         const targets = filteredFieldTargets(opponent, ["monster"], owner);
         const selected = await chooseFieldTargetsByClick(owner, targets, 1, {
           targetLabel: "monster",
@@ -5158,6 +5563,9 @@ if (lobbyEl) {
         });
         if (!selected.length) return;
         await destroyEffectTargets(owner, card, selected);
+        if (isAttackedDestroyOpponentMonsterCombo(entry, triggerEvent)) {
+          await destroyAttackedMonsterAfterEffect(entry, triggerEvent);
+        }
         return;
       }
 
@@ -5257,7 +5665,7 @@ if (lobbyEl) {
         return;
       }
 
-      case "select another monster you control and increase this monster's attack by 50% of the combined attack points for 2 turns.": {
+      case EFFECT_MONSTER_COMBINED_ATTACK_BOOST: {
         const targets = ownerMonsterField(owner)
           .map((candidate, index) => ({ owner, zone: "monster", index, card: candidate }))
           .filter(({ card: candidate }) => candidate && !sameDuelCard(candidate, card));
@@ -5653,6 +6061,33 @@ if (lobbyEl) {
     return preview;
   }
 
+  async function animateTrapCardReveal(card) {
+    if (!card) return;
+
+    const overlay = document.createElement("div");
+    overlay.className = "bf-trap-reveal";
+
+    const panel = document.createElement("div");
+    panel.className = "bf-trap-reveal-panel";
+
+    const title = document.createElement("div");
+    title.className = "bf-trap-reveal-title";
+    title.textContent = "Trap Activated";
+
+    const preview = createTrapPromptCard(card);
+    preview.classList.add("is-reveal");
+
+    panel.append(title, preview);
+    overlay.appendChild(panel);
+    document.body.appendChild(overlay);
+
+    requestAnimationFrame(() => overlay.classList.add("is-open"));
+    await sleep(TRAP_REVEAL_MS);
+    overlay.classList.remove("is-open");
+    await sleep(180);
+    overlay.remove();
+  }
+
   async function chooseTrapTargets(trapOwner, trapCard, entries, maxCount, title) {
     const targetLabel = entries.every((entry) => entry.zone === "monster")
       ? "monster"
@@ -5880,12 +6315,16 @@ if (lobbyEl) {
     if (field[entry.slotIdx] !== entry.card) return {};
 
     const card = entry.card;
+    const effect = trapEffectName(card);
     card._faceDown = false;
     card._justFlipped = true;
     renderField();
     playSfx("spellTrapActivate");
     showStatus(`${controllerName(entry.owner)} activated ${cardNameStr(card)}!`, 1600);
     await sleep(220);
+    if (isNegatingTrapEffect(effect)) {
+      await animateTrapCardReveal(card);
+    }
 
     await triggerEffectMonsterResponses({
       type: "effect-activated",
@@ -6513,6 +6952,12 @@ if (lobbyEl) {
 
     await triggerEffectMonsterResponses(attackEvent);
     if (state.defeatedOwner) return true;
+    if (attackEvent.defenderDestroyedByEffectMonster) {
+      if (attackerField[attackerIdx]) markMonsterAttacked(attackerOwner, attackerIdx);
+      renderField();
+      updateCounts();
+      return Boolean(state.defeatedOwner);
+    }
     if (!attackerField[attackerIdx]) {
       renderField();
       updateCounts();
@@ -8001,9 +8446,9 @@ if (lobbyEl) {
 
       if (target <= current) return; // can't go backwards
 
-      // First turn of the game: no Battle Phase
-      if (btn.dataset.bfPhase === "battle" && state.turn === 1) {
-        showStatus("No Battle Phase on the first turn of the game");
+      // The player who starts the duel skips Battle Phase on their first turn.
+      if (btn.dataset.bfPhase === "battle" && state.turn === 1 && state.activePlayer === state.startingPlayer) {
+        showStatus("No Battle Phase for the first player on turn 1.");
         return;
       }
 
@@ -8335,9 +8780,10 @@ if (lobbyEl) {
     }
 
     // Battle Phase
-    if (Number(state.aiBattleRestrictedUntilTurn || 0) >= state.turn) {
+    const aiSkipsFirstTurnBattle = state.turn === 1 && state.activePlayer === state.startingPlayer;
+    if (Number(state.aiBattleRestrictedUntilTurn || 0) >= state.turn || aiSkipsFirstTurnBattle) {
       setPhase("main2");
-      showStatus("AI is restricted from entering the Battle Phase.", 1600);
+      showStatus(aiSkipsFirstTurnBattle ? "AI skips Battle Phase on the first turn." : "AI is restricted from entering the Battle Phase.", 1600);
       await sleep(1600);
       if (isDuelEnded()) return;
     } else {
@@ -8477,6 +8923,7 @@ if (lobbyEl) {
     const cards = Array.isArray(deckCards) ? deckCards.filter(Boolean) : [];
     if (!cards.length) return false;
 
+    const firstPlayer = options.firstPlayer === "ai" ? "ai" : "player";
     duelDeckCards = [...cards];
     stopResultMusic();
     closeHandMenu();
@@ -8492,7 +8939,8 @@ if (lobbyEl) {
     if (resultOverlayEl) resultOverlayEl.hidden = true;
 
     state.turn = 1;
-    state.activePlayer = "player";
+    state.activePlayer = firstPlayer;
+    state.startingPlayer = firstPlayer;
     state.phase = "draw";
     state.playerLP = MAX_LP;
     state.aiLP = MAX_LP;
@@ -8540,13 +8988,58 @@ if (lobbyEl) {
     renderField();
     setPhase("draw");
 
-    if (options.announce) showStatus("Rematch started - draw a card.", 1800);
+    const deckName = options.deckName ? `${options.deckName} selected. ` : "";
+    if (firstPlayer === "ai") {
+      showStatus(`${deckName}AI goes first.`, 1800);
+      window.setTimeout(() => {
+        if (!isDuelEnded() && state.activePlayer === "ai" && state.phase === "draw") {
+          doAiTurn();
+        }
+      }, 900);
+    } else {
+      showStatus(`${deckName}${options.announce ? "Duel started" : "You go first"} - draw a card.`, 1800);
+    }
     return true;
+  }
+
+  async function beginDuelSetup(options = {}) {
+    if (!duelSetupDecks.length) {
+      showStatus("No decks found! Create a deck first, then come back.", 10000);
+      if (endTurnBtn) endTurnBtn.disabled = true;
+      return false;
+    }
+
+    stopResultMusic();
+    if (resultOverlayEl) resultOverlayEl.hidden = true;
+    closeHandMenu();
+    closeChoiceDialog();
+    closeFieldSelection();
+    closeTrapPrompt();
+    closeSpellResolveButton();
+    closeGraveyardDialog();
+    closeDeckDialog();
+    clearSlotHighlights();
+    clearCardInfo();
+
+    const selected = await promptDuelDeckChoice(duelSetupDecks, duelSetupCardMap);
+    if (!selected) {
+      window.location.href = "home.html";
+      return false;
+    }
+
+    const rpsWinnerOwner = await promptRockPaperScissors();
+    const firstPlayer = await chooseStartingPlayerAfterRps(rpsWinnerOwner);
+    return startDuel(selected.cards, {
+      ...options,
+      announce: true,
+      firstPlayer,
+      deckName: duelDeckName(selected.deck)
+    });
   }
 
   resultRematchBtn?.addEventListener("click", () => {
     stopResultMusic();
-    startDuel(duelDeckCards, { announce: true });
+    beginDuelSetup({ announce: true });
   });
 
   resultExitBtn?.addEventListener("click", () => {
@@ -8578,24 +9071,19 @@ if (lobbyEl) {
       return;
     }
 
-    // Pick latest deck by savedAt / updatedAt
-    const sorted = [...decks].sort(
+    duelSetupDecks = [...decks].sort(
       (a, b) => new Date(b.savedAt || b.updatedAt || 0) - new Date(a.savedAt || a.updatedAt || 0)
     );
-    const deck = sorted[0];
-    const cardMap = Object.fromEntries(cards.map((c) => [c.id, c]));
-    const deckCards = (Array.isArray(deck.cardIds) ? deck.cardIds : [])
-      .map((id) => cardMap[id])
-      .filter(Boolean);
+    duelSetupCardMap = Object.fromEntries(cards.map((card) => [card.id, card]));
 
-    if (!deckCards.length) {
-      showStatus("Your latest deck has no valid cards!", 8000);
+    if (!duelSetupDecks.some((deck) => duelDeckCardsFor(deck, duelSetupCardMap).length > 0)) {
+      showStatus("No playable decks found! Add valid cards to a deck first.", 8000);
       if (endTurnBtn) endTurnBtn.disabled = true;
       return;
     }
 
-    startDuel(deckCards);
     attachSlotListeners();
+    await beginDuelSetup();
   }
 
   init();
