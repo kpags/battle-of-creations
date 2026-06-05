@@ -8960,3 +8960,623 @@ button.creator-nav-item {
   animation: bf-flip-in 0.55s ease-out both;
   transform-origin: center;
 }
+
+/* --------------------------------------------------------------------------
+   Mobile battlefield polish
+   -------------------------------------------------------------------------- */
+@supports (height: 100svh) {
+  body[data-battle],
+  body[data-battle] .bf-page {
+    min-height: 100svh;
+  }
+
+  body[data-battle] .bf-page {
+    height: 100svh;
+  }
+}
+
+body[data-battle] {
+  overflow: hidden;
+  touch-action: pan-x pan-y;
+}
+
+.bf-board {
+  scrollbar-gutter: stable;
+}
+
+.bf-board,
+.bf-player-hand,
+.bf-ai-hand,
+.bf-deck-view-wrap,
+.bf-gy-table-wrap,
+.bf-preduel-table-wrap {
+  -webkit-overflow-scrolling: touch;
+}
+
+.bf-slot,
+.bf-hand-card,
+.bf-ai-hand-card,
+.bf-gy-slot,
+.bf-deck-pile,
+.bf-draw-prompt,
+.bf-end-turn-btn,
+.bf-phase,
+.bf-hand-menu-item {
+  touch-action: manipulation;
+}
+
+@media (max-width: 760px) {
+  body[data-battle] {
+    overflow: hidden;
+  }
+
+  .bf-page {
+    --bf-board-pad: 5px;
+    --bf-board-gap: 5px;
+    --bf-info-w: 180px;
+    --bf-deck-w: 58px;
+    --bf-lp-w: 58px;
+  }
+
+  .bf-topbar {
+    grid-template-columns: 1fr auto 1fr;
+    column-gap: 8px;
+    height: 40px;
+  }
+
+  .bf-turn-badge {
+    grid-column: 2;
+  }
+
+  .bf-topbar-actions {
+    grid-column: 3;
+  }
+
+  .bf-surrender-btn {
+    min-width: 82px;
+    height: 28px;
+    padding-inline: 9px;
+    font-size: 0.52rem;
+  }
+
+  .bf-board {
+    overflow-x: auto;
+    overflow-y: hidden;
+    align-items: stretch;
+    overscroll-behavior-x: contain;
+    scroll-padding-inline: 64px;
+    scrollbar-width: thin;
+  }
+
+  .bf-opponent-deck-col { order: 1; }
+  .bf-field             { order: 2; }
+  .bf-player-deck-col   { order: 3; }
+  .bf-lp-col            { order: 4; }
+  .bf-info-col          { order: 5; }
+
+  .bf-field {
+    flex: 0 0 auto;
+    min-width: max-content;
+    width: max-content;
+    max-width: none;
+    transform: none;
+    justify-content: center;
+  }
+
+  .bf-zone,
+  .bf-center-divider,
+  .bf-hand {
+    min-width: max-content;
+  }
+
+  .bf-player-hand,
+  .bf-ai-hand {
+    max-width: calc(100vw - 126px);
+    overflow-x: auto;
+    overflow-y: visible;
+    justify-content: flex-start;
+    padding-inline: 4px;
+    scrollbar-width: none;
+  }
+
+  .bf-player-hand::-webkit-scrollbar,
+  .bf-ai-hand::-webkit-scrollbar {
+    display: none;
+  }
+
+  .bf-player-hand {
+    flex: 0 0 auto;
+    min-height: 78px;
+    max-height: 96px;
+    padding-top: 18px;
+    padding-bottom: 7px;
+  }
+
+  .bf-ai-hand {
+    min-height: 72px;
+    align-items: flex-start;
+  }
+
+  .bf-info-col {
+    width: var(--bf-info-w);
+  }
+
+  .bf-card-info {
+    min-height: 168px;
+    flex: 0 1 52%;
+  }
+
+  .bf-ci-art {
+    max-height: 44%;
+  }
+
+  .bf-ci-name {
+    font-size: 0.74rem;
+    line-height: 1.18;
+  }
+
+  .bf-ci-type,
+  .bf-ci-stat,
+  .bf-ci-desc {
+    font-size: 0.64rem;
+  }
+
+  .bf-ci-desc {
+    -webkit-line-clamp: 5;
+  }
+
+  .bf-battle-log {
+    min-height: 118px;
+    height: auto;
+    flex: 1;
+  }
+
+  .bf-lp-col {
+    min-width: var(--bf-lp-w);
+  }
+
+  .bf-lp-bar-label {
+    padding: 6px 4px 4px;
+  }
+
+  .bf-lp-pts {
+    font-size: 0.95rem;
+    letter-spacing: 0.02em;
+  }
+
+  .bf-deck-col {
+    min-width: var(--bf-deck-w);
+  }
+
+  .bf-opponent-deck-col {
+    padding-top: clamp(18px, 7vh, 44px);
+  }
+
+  .bf-player-deck-col {
+    padding-bottom: clamp(20px, 7vh, 48px);
+  }
+
+  .bf-deck-area {
+    gap: 6px;
+  }
+
+  .bf-center-divider {
+    justify-content: center;
+  }
+
+  .bf-divider-line {
+    min-width: 26px;
+  }
+
+  .bf-status {
+    bottom: max(16px, env(safe-area-inset-bottom));
+    max-width: calc(100vw - 18px);
+    padding: 8px 12px;
+    font-size: 0.72rem;
+    line-height: 1.3;
+    white-space: normal;
+  }
+
+  .duel-dialog {
+    width: min(440px, calc(100vw - 20px));
+    max-height: calc(100svh - 24px);
+    overflow-y: auto;
+    padding: 26px 18px 20px;
+  }
+
+  .duel-dialog-options {
+    grid-template-columns: 1fr;
+  }
+
+  .duel-dialog-option {
+    min-height: 134px;
+    padding: 18px 14px 16px;
+  }
+
+  .bf-preduel-overlay,
+  .bf-choice-dialog,
+  .bf-trap-prompt,
+  .bf-gy-dialog {
+    padding: max(10px, env(safe-area-inset-top)) 10px max(10px, env(safe-area-inset-bottom));
+  }
+
+  .bf-preduel-panel,
+  .bf-choice-panel,
+  .bf-trap-prompt-panel,
+  .bf-gy-dialog-panel {
+    max-height: calc(100svh - 24px);
+  }
+
+  .bf-preduel-panel {
+    width: min(720px, calc(100vw - 20px));
+    padding: 15px;
+  }
+
+  .bf-preduel-title {
+    font-size: 1.16rem;
+  }
+
+  .bf-preduel-deck-table {
+    min-width: 0;
+    font-size: 0.78rem;
+  }
+
+  .bf-preduel-deck-table th,
+  .bf-preduel-deck-table td {
+    padding: 10px 8px;
+  }
+
+  .bf-preduel-deck-table th:nth-child(3),
+  .bf-preduel-deck-table td:nth-child(3),
+  .bf-preduel-deck-table th:nth-child(4),
+  .bf-preduel-deck-table td:nth-child(4),
+  .bf-preduel-deck-table th:nth-child(5),
+  .bf-preduel-deck-table td:nth-child(5),
+  .bf-preduel-deck-table th:nth-child(6),
+  .bf-preduel-deck-table td:nth-child(6) {
+    display: none;
+  }
+
+  .bf-preduel-pick-cell {
+    width: 52px;
+  }
+
+  .bf-rps-arena {
+    gap: 10px;
+  }
+
+  .bf-rps-token {
+    min-height: 86px;
+  }
+
+  .bf-gy-dialog-panel {
+    width: calc(100vw - 20px);
+  }
+
+  .bf-gy-table {
+    min-width: 420px;
+  }
+
+  .bf-gy-table th:nth-child(4),
+  .bf-gy-table td:nth-child(4),
+  .bf-gy-table th:nth-child(5),
+  .bf-gy-table td:nth-child(5),
+  .bf-gy-table th:nth-child(6),
+  .bf-gy-table td:nth-child(6) {
+    display: none;
+  }
+
+  .bf-deck-dialog .bf-gy-dialog-panel {
+    width: calc(100vw - 20px);
+  }
+
+  .bf-deck-view-wrap {
+    grid-template-columns: repeat(auto-fill, minmax(128px, 1fr));
+    gap: 9px;
+    padding: 10px;
+  }
+
+  .bf-deck-view-card {
+    min-height: 224px;
+    grid-template-rows: 112px minmax(0, 1fr);
+  }
+
+  .bf-trap-reveal {
+    padding: 12px;
+  }
+
+  .bf-trap-reveal-panel {
+    width: min(410px, calc(100vw - 24px));
+    padding: 10px;
+  }
+
+  .bf-trap-reveal .bf-trap-preview-card.is-reveal {
+    grid-template-columns: 94px minmax(0, 1fr);
+  }
+
+  .bf-trap-reveal .bf-trap-preview-art {
+    height: 132px;
+  }
+
+  .bf-spell-resolve-btn {
+    bottom: max(16px, env(safe-area-inset-bottom));
+    width: min(330px, calc(100vw - 28px));
+    padding: 10px 12px;
+    white-space: normal;
+  }
+
+  .bf-hand-menu {
+    max-width: calc(100vw - 16px);
+    min-width: min(190px, calc(100vw - 16px));
+  }
+
+  .bf-hand-menu-item {
+    min-height: 38px;
+  }
+}
+
+@media (max-width: 520px) {
+  .bf-page {
+    --bf-info-w: 158px;
+    --bf-deck-w: 58px;
+    --bf-lp-w: 54px;
+  }
+
+  .bf-board {
+    gap: 5px;
+    padding: 5px;
+    scroll-padding-inline: 58px;
+  }
+
+  .bf-slot {
+    width: 44px;
+    height: 58px;
+  }
+
+  .bf-gy-slot,
+  .bf-deck-pile {
+    width: 44px;
+    height: 58px;
+    padding-top: 5px;
+  }
+
+  .bf-end-turn-btn {
+    width: 50px;
+    height: 38px;
+    padding: 4px;
+    font-size: 0.42rem;
+    border-radius: 8px;
+  }
+
+  .bf-draw-prompt {
+    width: 50px;
+    min-height: 30px;
+    font-size: 0.42rem;
+    letter-spacing: 0.08em;
+  }
+
+  .bf-player-deck-col .bf-draw-prompt {
+    top: calc(100% + 6px);
+  }
+
+  .bf-zone {
+    gap: 5px;
+  }
+
+  .bf-zone-label {
+    font-size: 0.44rem;
+    letter-spacing: 0.1em;
+  }
+
+  .bf-hand-card,
+  .bf-ai-hand-card {
+    width: 50px;
+  }
+
+  .bf-hand-card-details {
+    padding: 2px 3px;
+  }
+
+  .bf-hand-card-name {
+    display: block;
+    font-size: 0.38rem;
+  }
+
+  .bf-hand-card-type,
+  .bf-hand-card-stats {
+    display: none;
+  }
+
+  .bf-hand-card:hover,
+  .bf-hand-card.is-selected {
+    transform: translateY(-12px) scale(1.04);
+  }
+
+  .bf-center-divider {
+    gap: 3px;
+    padding: 2px 0;
+  }
+
+  .bf-center-divider .bf-phase {
+    min-width: 38px;
+    min-height: 32px;
+    padding: 3px 5px;
+  }
+
+  .bf-center-divider .bf-phase-short {
+    font-size: 0.68rem;
+  }
+
+  .bf-center-divider .bf-phase-full {
+    display: none;
+  }
+
+  .bf-slot::before,
+  .bf-slot::after {
+    display: block;
+  }
+
+  .bf-slot-face-name {
+    display: none;
+  }
+
+  .bf-slot-stats {
+    display: none;
+  }
+
+  .bf-slot-label {
+    font-size: 0.4rem;
+    letter-spacing: 0.04em;
+  }
+
+  .bf-gy-count,
+  .bf-deck-count {
+    font-size: 0.78rem;
+  }
+
+  .bf-lp-who {
+    font-size: 0.54rem;
+  }
+
+  .bf-lp-pts {
+    font-size: 0.82rem;
+  }
+
+  .bf-battle-log-head {
+    display: none;
+  }
+
+  .bf-battle-log-list {
+    padding: 5px;
+  }
+
+  .bf-battle-log-entry {
+    padding: 5px 6px;
+    font-size: 0.58rem;
+  }
+
+  .bf-choice-panel,
+  .bf-trap-prompt-panel {
+    width: calc(100vw - 20px);
+  }
+
+  .bf-effect-prompt-list {
+    grid-template-columns: 1fr;
+  }
+
+  .bf-trap-preview-card,
+  .bf-trap-reveal .bf-trap-preview-card.is-reveal {
+    grid-template-columns: 82px minmax(0, 1fr);
+  }
+
+  .bf-trap-preview-art,
+  .bf-trap-reveal .bf-trap-preview-art {
+    height: 116px;
+  }
+
+  .bf-trap-preview-name,
+  .bf-trap-reveal .bf-trap-preview-name {
+    font-size: 0.78rem;
+  }
+
+  .bf-trap-preview-desc,
+  .bf-trap-reveal .bf-trap-preview-desc {
+    max-height: 52px;
+    font-size: 0.6rem;
+  }
+
+  .bf-trap-prompt-actions,
+  .bf-result-actions {
+    grid-template-columns: 1fr;
+    flex-direction: column;
+    width: 100%;
+  }
+
+  .bf-trap-prompt-btn,
+  .bf-result-btn {
+    width: 100%;
+    min-height: 40px;
+  }
+}
+
+@media (max-width: 380px) {
+  .bf-page {
+    --bf-info-w: 144px;
+    --bf-deck-w: 54px;
+    --bf-lp-w: 50px;
+  }
+
+  .bf-topbar {
+    height: 38px;
+  }
+
+  .bf-surrender-btn {
+    min-width: 70px;
+    height: 26px;
+    padding-inline: 7px;
+    font-size: 0.45rem;
+  }
+
+  .bf-slot {
+    width: 42px;
+    height: 56px;
+  }
+
+  .bf-zone {
+    gap: 4px;
+  }
+
+  .bf-hand-card,
+  .bf-ai-hand-card {
+    width: 48px;
+  }
+
+  .bf-gy-slot,
+  .bf-deck-pile {
+    width: 42px;
+    height: 56px;
+  }
+
+  .bf-end-turn-btn {
+    width: 48px;
+    height: 36px;
+    font-size: 0.38rem;
+  }
+
+  .bf-draw-prompt {
+    width: 48px;
+    min-height: 28px;
+    font-size: 0.38rem;
+  }
+
+  .bf-center-divider .bf-phase {
+    min-width: 36px;
+    min-height: 31px;
+    padding-inline: 4px;
+  }
+
+  .bf-center-divider .bf-phase-short {
+    font-size: 0.62rem;
+  }
+
+  .bf-preduel-panel {
+    padding: 12px;
+  }
+
+  .bf-rps-choices {
+    gap: 7px;
+  }
+
+  .bf-rps-choice {
+    min-height: 74px;
+  }
+
+  .bf-rps-choice span {
+    width: 28px;
+    height: 28px;
+  }
+
+  .bf-rps-choice strong {
+    font-size: 0.64rem;
+  }
+}
