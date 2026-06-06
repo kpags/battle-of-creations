@@ -544,10 +544,18 @@ forms.forEach((form) => {
 
     try {
       if (formName === "login") {
+        const identifier = String(
+          form.elements.identifier?.value || form.elements.email?.value || ""
+        ).trim();
+        if (!identifier) {
+          showFormMessage(form, "Enter your email or username.", true);
+          return;
+        }
+
         const payload = await apiRequest("/api/login", {
           method: "POST",
           body: {
-            email: normalizeEmail(form.elements.email?.value),
+            identifier,
             password: form.elements.password?.value || ""
           }
         });
@@ -3683,6 +3691,30 @@ if (lobbyEl) {
 
   const dialog = backdrop.querySelector(".duel-dialog");
   const closeBtn = backdrop.querySelector(".duel-dialog-close");
+  const deckRequiredBackdrop = document.createElement("div");
+  deckRequiredBackdrop.className = "duel-dialog-backdrop";
+  deckRequiredBackdrop.setAttribute("role", "dialog");
+  deckRequiredBackdrop.setAttribute("aria-modal", "true");
+  deckRequiredBackdrop.setAttribute("aria-labelledby", "deck-required-dialog-title");
+  deckRequiredBackdrop.innerHTML = `
+    <div class="duel-dialog">
+      <button class="duel-dialog-close" aria-label="Close" type="button">&#x2715;</button>
+      <h2 class="duel-dialog-title" id="deck-required-dialog-title">Create a Deck First</h2>
+      <p class="duel-dialog-sub">You must create at least one deck before you can duel.</p>
+      <div class="duel-dialog-options">
+        <button class="duel-dialog-option" type="button" data-create-required-deck>
+          <span class="duel-dialog-opt-label">Create Deck</span>
+          <span class="duel-dialog-opt-sub">Open the Deck Constructor</span>
+        </button>
+      </div>
+    </div>
+  `;
+  document.body.appendChild(deckRequiredBackdrop);
+
+  const deckRequiredDialog = deckRequiredBackdrop.querySelector(".duel-dialog");
+  const deckRequiredCloseBtn = deckRequiredBackdrop.querySelector(".duel-dialog-close");
+  const createRequiredDeckBtn = deckRequiredBackdrop.querySelector("[data-create-required-deck]");
+  let checkingDecks = false;
 
   function openDialog() {
     backdrop.classList.add("is-open");
@@ -3693,14 +3725,49 @@ if (lobbyEl) {
     backdrop.classList.remove("is-open");
   }
 
+  function openDeckRequiredDialog() {
+    deckRequiredBackdrop.classList.add("is-open");
+    createRequiredDeckBtn?.focus();
+  }
+
+  function closeDeckRequiredDialog() {
+    deckRequiredBackdrop.classList.remove("is-open");
+  }
+
   triggers.forEach(trigger => {
-    trigger.addEventListener("click", openDialog);
+    trigger.addEventListener("click", async (event) => {
+      event.preventDefault();
+      if (checkingDecks) return;
+      checkingDecks = true;
+      trigger.setAttribute("aria-busy", "true");
+
+      try {
+        const decks = await window.BattleOfCreationsStore.getMyDecks();
+        if (!decks.length) {
+          openDeckRequiredDialog();
+          return;
+        }
+        openDialog();
+      } catch (error) {
+        showGlobalTaskStatus(error.message || "Decks could not be loaded.", true, true);
+      } finally {
+        checkingDecks = false;
+        trigger.removeAttribute("aria-busy");
+      }
+    });
   });
 
   closeBtn.addEventListener("click", closeDialog);
+  deckRequiredCloseBtn?.addEventListener("click", closeDeckRequiredDialog);
+  createRequiredDeckBtn?.addEventListener("click", () => {
+    window.location.href = "deck-creator.html";
+  });
 
   backdrop.addEventListener("click", (e) => {
     if (!dialog.contains(e.target)) closeDialog();
+  });
+  deckRequiredBackdrop.addEventListener("click", (event) => {
+    if (!deckRequiredDialog.contains(event.target)) closeDeckRequiredDialog();
   });
 
   backdrop.addEventListener("keydown", (e) => {
@@ -3719,6 +3786,9 @@ if (lobbyEl) {
         first.focus();
       }
     }
+  });
+  deckRequiredBackdrop.addEventListener("keydown", (event) => {
+    if (event.key === "Escape") closeDeckRequiredDialog();
   });
 
   backdrop.addEventListener("click", (e) => {
@@ -3871,6 +3941,7 @@ if (lobbyEl) {
     tributesSelected: [],
     hasNormalSummoned: false,
     hasDrawn: false,
+    drawInProgress: false,
     battleEnteredThisTurn: false,
     monstersAttackedThisTurn: new Set(),
     monsterAttackCountsThisTurn: new Map(),
@@ -3918,6 +3989,8 @@ if (lobbyEl) {
   const statusEl        = $("[data-bf-status]");
   const statusMsgEl     = $("[data-bf-status-msg]");
   const endTurnBtn      = $("[data-bf-end-turn]");
+  const topbarControls  = $(".bf-topbar-controls");
+  const playerDeckArea  = $(".bf-player-deck-col .bf-deck-area");
   const sidebarToggleBtn = $("[data-bf-sidebar-toggle]");
   const sidebarBackdrop = $("[data-bf-sidebar-backdrop]");
   const sidebarEl       = $("[data-bf-sidebar]");
@@ -3971,19 +4044,36 @@ if (lobbyEl) {
     updateSidebarState();
   }
 
+  function syncEndTurnPlacement() {
+    if (!endTurnBtn) return;
+    const compact = compactViewport.matches;
+    const target = compact ? topbarControls : playerDeckArea;
+    if (!target) return;
+
+    endTurnBtn.classList.toggle("is-deck-control", !compact);
+    if (endTurnBtn.parentElement === target) return;
+
+    if (compact) {
+      target.appendChild(endTurnBtn);
+    } else {
+      target.insertBefore(endTurnBtn, playerGYSlot);
+    }
+  }
+
   function syncSidebarViewport() {
     const nextCompact = compactViewport.matches;
     if (nextCompact !== sidebarViewportIsCompact) {
       battlePageEl?.classList.remove("is-sidebar-open", "is-sidebar-collapsed");
       sidebarViewportIsCompact = nextCompact;
     }
+    syncEndTurnPlacement();
     updateSidebarState();
   }
 
   sidebarToggleBtn?.addEventListener("click", toggleSidebar);
   sidebarBackdrop?.addEventListener("click", closeMobileSidebar);
   compactViewport.addEventListener?.("change", syncSidebarViewport);
-  updateSidebarState();
+  syncSidebarViewport();
 
   function duelDeckName(deck) {
     return String(deck?.name || deck?.deckName || "Unnamed Deck");
@@ -4842,19 +4932,41 @@ if (lobbyEl) {
 
   async function sendActivatedSpellToGraveyard(spellContext) {
     if (!spellContext?.card) return;
+    const owner = spellContext.owner || "player";
+    const hand = ownerHand(owner);
+    const deck = ownerDeck(owner);
+    const graveyard = ownerGraveyard(owner);
+    const field = ownerSpellTrapField(owner);
     let fromRect = spellContext.sourceRect;
 
     if (spellContext.source === "field" && Number.isInteger(spellContext.slotIdx)) {
-      const fieldCard = state.playerSpellTrap[spellContext.slotIdx];
-      const slot = spellTrapSlots("player")[spellContext.slotIdx];
+      const fieldCard = field[spellContext.slotIdx];
+      const slot = spellTrapSlots(owner)[spellContext.slotIdx];
       fromRect = readRect(slot) || fromRect;
-      if (fieldCard) state.playerSpellTrap[spellContext.slotIdx] = null;
-      renderField();
+      if (fieldCard && sameDuelCard(fieldCard, spellContext.card)) {
+        field[spellContext.slotIdx] = null;
+      }
     }
 
-    state.playerGY.push(spellContext.card);
+    for (let index = field.length - 1; index >= 0; index -= 1) {
+      if (field[index] && sameDuelCard(field[index], spellContext.card)) field[index] = null;
+    }
+    for (let index = hand.length - 1; index >= 0; index -= 1) {
+      if (sameDuelCard(hand[index], spellContext.card)) hand.splice(index, 1);
+    }
+    for (let index = deck.length - 1; index >= 0; index -= 1) {
+      if (sameDuelCard(deck[index], spellContext.card)) deck.splice(index, 1);
+    }
+
+    const alreadyInGraveyard = graveyard.some((card) => sameDuelCard(card, spellContext.card));
+    if (!alreadyInGraveyard) graveyard.push(spellContext.card);
+    renderField();
+    renderPlayerHand();
+    renderAiHand();
     updateCounts();
-    await animateCardMove(spellContext.card, fromRect, playerGYSlot, "is-to-graveyard");
+    if (!alreadyInGraveyard) {
+      await animateCardMove(spellContext.card, fromRect, ownerGraveyardSlot(owner), "is-to-graveyard");
+    }
   }
 
   function animateLifeChange(owner, delta) {
@@ -5230,8 +5342,10 @@ if (lobbyEl) {
     if (!drawPromptEl) return;
     const show = state.activePlayer === "player"
               && state.phase === "draw"
-              && !state.hasDrawn;
+              && !state.hasDrawn
+              && !state.drawInProgress;
     drawPromptEl.hidden = !show;
+    drawPromptEl.disabled = state.drawInProgress;
   }
 
   // ── Draw ────────────────────────────────────────────────
@@ -5778,11 +5892,13 @@ if (lobbyEl) {
       collection = ownerGraveyard(owner);
       fromElOrRect = fromElOrRect || ownerGraveyardSlot(owner);
     }
+    const selectedMonster = collection[index];
+    if (!selectedMonster) return null;
+    const position = options.position || await chooseEffectSummonPosition(owner, selectedMonster);
     const [monster] = collection.splice(index, 1);
     if (!monster) return null;
     if (source === "graveyard") resetSpellStatBoostOnRevive(monster);
 
-    const position = options.position || (owner === "ai" ? chooseAiSummonPosition(monster) : "attack");
     const summoned = { ...monster, _faceDown: false, _position: position };
     monsterZone[slotIdx] = summoned;
     renderField();
@@ -5795,7 +5911,7 @@ if (lobbyEl) {
     return monsterZone[slotIdx] === summoned ? { card: summoned, slotIdx } : null;
   }
 
-  async function chooseEffectRevivePosition(owner, monster) {
+  async function chooseEffectSummonPosition(owner, monster) {
     if (owner !== "player") return chooseAiSummonPosition(monster);
     const useAttack = await promptTrapDecision(
       cardNameStr(monster),
@@ -5937,7 +6053,7 @@ if (lobbyEl) {
           showStatus(`${cardNameStr(card)} found no other monster to revive.`, 1700);
           return;
         }
-        const position = await chooseEffectRevivePosition(owner, picked.card);
+        const position = await chooseEffectSummonPosition(owner, picked.card);
         await specialSummonFromCollection(owner, "graveyard", picked.index, ownerGraveyardSlot(owner), { position });
         return;
       }
@@ -6706,7 +6822,7 @@ if (lobbyEl) {
 
       case "negate-effect-destroy":
         outcome.negateEffect = true;
-        outcome.destroyEffectSource = true;
+        outcome.destroyEffectSource = false;
         if (event.sourceZone && Number.isInteger(event.sourceIdx)) {
           const sourceOwner = event.sourceOwner || event.effectOwner;
           const sourceField = fieldForZone(sourceOwner, event.sourceZone);
@@ -6716,6 +6832,7 @@ if (lobbyEl) {
               destroyerOwner: entry.owner,
               sourceCard: card
             });
+            outcome.destroyEffectSource = true;
           }
         }
         showStatus(`${cardNameStr(card)} negated and destroyed ${cardNameStr(event.sourceCard)}.`, 1900);
@@ -8012,6 +8129,7 @@ if (lobbyEl) {
     if (card) {
       card._faceDown = false;
       card._justFlipped = true;
+      delete card._setTurn;
     }
     clearSlotHighlights();
     clearCardInfo();
@@ -8325,13 +8443,19 @@ if (lobbyEl) {
       return true;
     }
 
+    const selectedMonster = state.playerHand[pending.handIdx];
+    if (!selectedMonster) {
+      await finishSpellActivation(pending.context, "The selected monster is no longer in hand.");
+      return true;
+    }
+    const position = await chooseEffectSummonPosition("player", selectedMonster);
     const [monster] = state.playerHand.splice(pending.handIdx, 1);
     if (!monster) {
       await finishSpellActivation(pending.context, "The selected monster is no longer in hand.");
       return true;
     }
 
-    const summoned = { ...monster, _faceDown: false, _position: "attack" };
+    const summoned = { ...monster, _faceDown: false, _position: position };
     state.playerMonster[slotIdx] = summoned;
     renderPlayerHand();
     renderField();
@@ -8363,9 +8487,11 @@ if (lobbyEl) {
       return true;
     }
 
+    const selectedMonster = state.playerGY[gyIndex];
+    const position = await chooseEffectSummonPosition("player", selectedMonster);
     const [monster] = state.playerGY.splice(gyIndex, 1);
     resetSpellStatBoostOnRevive(monster);
-    const revived = { ...monster, _faceDown: false, _position: "attack" };
+    const revived = { ...monster, _faceDown: false, _position: position };
     state.playerMonster[slotIdx] = revived;
     updateCounts();
     renderField();
@@ -8629,20 +8755,6 @@ if (lobbyEl) {
   }
 
   // ── Hand card context menu ───────────────────────────────
-  async function activateTrapFromField(slotIdx) {
-    if (isSpellResolutionBusy()) {
-      showStatus("Finish resolving the active spell or trap first.");
-      return;
-    }
-    const card = state.playerSpellTrap[slotIdx];
-    if (!card || cardTypeName(card) !== "trap") return;
-    if (!isTrapReady("player", slotIdx)) {
-      showStatus("That trap can be activated after the turn it was Set.");
-      return;
-    }
-    showStatus(`${cardNameStr(card)} is ready and will activate when its trigger happens.`, 2200);
-  }
-
   async function sendFieldSpellTrapToGraveyard(slotIdx) {
     if (isSpellResolutionBusy()) {
       showStatus("Finish resolving the active spell or trap first.");
@@ -8718,7 +8830,12 @@ if (lobbyEl) {
     label.textContent = "Deck Actions";
     menu.appendChild(label);
 
-    if (state.activePlayer === "player" && state.phase === "draw" && !state.hasDrawn) {
+    if (
+      state.activePlayer === "player"
+      && state.phase === "draw"
+      && !state.hasDrawn
+      && !state.drawInProgress
+    ) {
       const drawBtn = document.createElement("button");
       drawBtn.className = "bf-hand-menu-item";
       drawBtn.type = "button";
@@ -8782,16 +8899,14 @@ if (lobbyEl) {
       return btn;
     }
 
-    menu.appendChild(item("Activate", async () => {
-      if (type === "spell") {
-        await activateSpellFromField(slotIdx);
-      } else if (type === "trap") {
-        await activateTrapFromField(slotIdx);
-      }
-    }));
-    menu.insertBefore(item("View Details", async () => {
+    menu.appendChild(item("View Details", async () => {
       openCardHoldPreview(card);
-    }), menu.children[1]);
+    }));
+    if (type === "spell") {
+      menu.appendChild(item("Activate", async () => {
+        await activateSpellFromField(slotIdx);
+      }));
+    }
     menu.appendChild(item("Send to Graveyard", async () => {
       await sendFieldSpellTrapToGraveyard(slotIdx);
     }, "is-danger"));
@@ -9000,6 +9115,10 @@ if (lobbyEl) {
         showStatus("Finish resolving the active spell first.");
         return;
       }
+      if (state.drawInProgress) {
+        showStatus("Finish drawing the card before changing phases.");
+        return;
+      }
       const current = phaseOrder.indexOf(state.phase);
       const target  = phaseOrder.indexOf(btn.dataset.bfPhase);
 
@@ -9034,6 +9153,11 @@ if (lobbyEl) {
         state.monsterAttackCountsThisTurn.clear();
       }
 
+      if (btn.dataset.bfPhase === "end") {
+        endPlayerTurn();
+        return;
+      }
+
       setPhase(btn.dataset.bfPhase);
 
       if (btn.dataset.bfPhase === "battle") {
@@ -9050,14 +9174,27 @@ if (lobbyEl) {
   async function doDraw() {
     if (state.activePlayer !== "player") return;
     if (state.phase !== "draw") return;
+    if (state.drawInProgress) return;
     if (state.hasDrawn) { showStatus("Already drew this turn!"); return; }
-    if (!await drawCard("player")) return;
+
+    state.drawInProgress = true;
     state.hasDrawn = true;
     updateDrawPrompt();
-    setTimeout(async () => {
+
+    try {
+      if (!await drawCard("player")) {
+        state.hasDrawn = false;
+        return;
+      }
+
+      await sleep(600);
+      if (state.activePlayer !== "player" || state.phase !== "draw") return;
       setPhase("main1");
       await triggerEffectMonsterResponses({ type: "hand", owner: "player" }, { owner: "player" });
-    }, 600);
+    } finally {
+      state.drawInProgress = false;
+      updateDrawPrompt();
+    }
   }
 
   drawPromptEl?.addEventListener("click", doDraw);
@@ -9124,6 +9261,7 @@ if (lobbyEl) {
     state.monsterAttackCountsThisTurn.clear();
     state.activePlayer = "ai";
     state.hasNormalSummoned = false;
+    state.drawInProgress = false;
     state.battleEnteredThisTurn = false;
     clearModeChangesFor("ai");
     state.tributesPending = 0;
@@ -9430,6 +9568,7 @@ if (lobbyEl) {
     state.activePlayer = "player";
     state.hasNormalSummoned = false;
     state.hasDrawn = false;
+    state.drawInProgress = false;
     state.battleEnteredThisTurn = false;
     state.monstersAttackedThisTurn.clear();
     state.monsterAttackCountsThisTurn.clear();
@@ -9557,6 +9696,7 @@ if (lobbyEl) {
     state.tributesSelected = [];
     state.hasNormalSummoned = false;
     state.hasDrawn = false;
+    state.drawInProgress = false;
     state.battleEnteredThisTurn = false;
     state.monstersAttackedThisTurn = new Set();
     state.monsterAttackCountsThisTurn = new Map();

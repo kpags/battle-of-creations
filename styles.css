@@ -7762,6 +7762,10 @@ button.creator-nav-item {
   position: relative;
 }
 
+.bf-player-deck-col .bf-end-turn-btn.is-deck-control {
+  margin-bottom: 4px;
+}
+
 .bf-deck-spacer {
   flex: 0 0 clamp(12px, 2vh, 24px);
 }
