@@ -65,12 +65,22 @@
               <span aria-hidden="true"></span>
               Delete Cards
             </button>
+            <button class="library-command command-transfer command-export" type="button" data-export-cards>
+              <span aria-hidden="true"></span>
+              Export JSON
+            </button>
+            <button class="library-command command-transfer command-import" type="button" data-import-cards>
+              <span aria-hidden="true"></span>
+              Import JSON
+            </button>
+            <input type="file" accept=".json,application/json" hidden data-import-cards-file>
             <a class="library-command command-edit" href="#" hidden data-edit-card>
               <span aria-hidden="true"></span>
               Edit Card
             </a>
           </div>
         </header>
+        <p class="library-transfer-status" data-transfer-status hidden role="status" aria-live="polite"></p>
 
         <div class="library-layout">
           <section class="library-main-panel" aria-label="Created cards">

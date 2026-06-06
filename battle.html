@@ -13,6 +13,15 @@
 
     <!-- ── Top bar: turn + end turn ── -->
     <header class="bf-topbar">
+      <div class="bf-topbar-controls">
+        <button class="bf-sidebar-toggle" data-bf-sidebar-toggle type="button"
+          aria-controls="bf-sidebar" aria-expanded="true" aria-label="Toggle duel sidebar" title="Toggle sidebar">
+          <span aria-hidden="true"></span>
+          <span aria-hidden="true"></span>
+          <span aria-hidden="true"></span>
+        </button>
+        <button class="bf-end-turn-btn" data-bf-end-turn type="button">End Turn</button>
+      </div>
       <div class="bf-turn-badge">
         <span class="bf-turn-word">Turn</span>
         <span class="bf-turn-num" data-bf-turn>1</span>
@@ -22,11 +31,14 @@
       </div>
     </header>
 
+    <button class="bf-sidebar-backdrop" data-bf-sidebar-backdrop type="button"
+      aria-label="Close duel sidebar" tabindex="-1"></button>
+
     <!-- ── Board ── -->
     <div class="bf-board">
 
       <!-- Left: Card info pane -->
-      <div class="bf-info-col">
+      <aside class="bf-info-col" id="bf-sidebar" data-bf-sidebar>
         <div class="bf-card-info" data-card-info aria-live="polite">
           <div class="bf-ci-art" data-ci-art></div>
           <div class="bf-ci-body">
@@ -47,7 +59,7 @@
             <div class="bf-battle-log-empty" data-battle-log-empty>Battle messages will appear here.</div>
           </div>
         </div>
-      </div>
+      </aside>
 
       <!-- Left: Opponent deck + graveyard -->
       <div class="bf-deck-col bf-opponent-deck-col">
@@ -149,7 +161,6 @@
       <!-- Right: Player controls + deck + graveyard -->
       <div class="bf-deck-col bf-player-deck-col">
         <div class="bf-deck-area">
-          <button class="bf-end-turn-btn" data-bf-end-turn type="button">End Turn</button>
           <div class="bf-gy-slot" data-player-gy title="Your Graveyard" role="button" tabindex="0" aria-label="Your Graveyard">
             <span class="bf-slot-label">GY</span>
             <span class="bf-gy-count" data-player-gy-count>0</span>

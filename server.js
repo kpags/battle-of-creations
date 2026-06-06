@@ -1,17 +1,36 @@
 const crypto = require("crypto");
+const { once } = require("events");
 const fs = require("fs");
 const fsp = require("fs/promises");
 const http = require("http");
 const path = require("path");
+const { promisify } = require("util");
 const { URL } = require("url");
+const zlib = require("zlib");
 
 const ROOT_DIR = __dirname;
-const DATA_DIR = path.join(ROOT_DIR, "data");
-const DATA_FILE = path.join(DATA_DIR, "store.json");
+const DATA_FILE = process.env.DATA_FILE
+  ? path.resolve(process.env.DATA_FILE)
+  : path.join(ROOT_DIR, "data", "store.json");
+const DATA_DIR = path.dirname(DATA_FILE);
+const SESSIONS_FILE = process.env.SESSIONS_FILE
+  ? path.resolve(process.env.SESSIONS_FILE)
+  : path.join(
+      DATA_DIR,
+      `${path.basename(DATA_FILE, path.extname(DATA_FILE))}.sessions.json`
+    );
 const PORT = Number(process.env.PORT || 5173);
 const COOKIE_NAME = "boc_session";
 const SESSION_MAX_AGE_SECONDS = 60 * 60 * 24 * 7;
-const MAX_JSON_BYTES = 12 * 1024 * 1024;
+const MAX_JSON_BYTES = Number(process.env.MAX_JSON_BYTES || 256 * 1024 * 1024);
+const MAX_IMPORT_RECORDS = 1000;
+const MAX_ACTIVE_IMPORTS_PER_USER = 2;
+const BACKGROUND_TASK_RETENTION_MS = 60 * 60 * 1000;
+const scrypt = promisify(crypto.scrypt);
+let storeCache = null;
+let storeLoadPromise = null;
+let storeMutationQueue = Promise.resolve();
+const backgroundTasks = new Map();
 
 const MIME_TYPES = {
   ".html": "text/html; charset=utf-8",
@@ -21,8 +40,12 @@ const MIME_TYPES = {
   ".png": "image/png",
   ".jpg": "image/jpeg",
   ".jpeg": "image/jpeg",
+  ".gif": "image/gif",
+  ".webp": "image/webp",
   ".svg": "image/svg+xml",
-  ".ico": "image/x-icon"
+  ".ico": "image/x-icon",
+  ".mp3": "audio/mpeg",
+  ".wav": "audio/wav"
 };
 
 function defaultStore() {
@@ -35,36 +58,132 @@ function defaultStore() {
 }
 
 async function loadStore() {
-  try {
-    const raw = await fsp.readFile(DATA_FILE, "utf8");
-    const parsed = JSON.parse(raw);
-    return {
-      ...defaultStore(),
-      ...parsed,
-      users: Array.isArray(parsed.users) ? parsed.users : [],
-      sessions: parsed.sessions && typeof parsed.sessions === "object" ? parsed.sessions : {},
-      cards: Array.isArray(parsed.cards) ? parsed.cards : [],
-      decks: Array.isArray(parsed.decks) ? parsed.decks : []
-    };
-  } catch (error) {
-    if (error.code === "ENOENT") {
-      return defaultStore();
+  if (storeCache) return storeCache;
+  if (storeLoadPromise) return storeLoadPromise;
+
+  storeLoadPromise = (async () => {
+    try {
+      const raw = await fsp.readFile(DATA_FILE, "utf8");
+      const parsed = JSON.parse(raw);
+      let sessions = parsed.sessions && typeof parsed.sessions === "object" ? parsed.sessions : {};
+      try {
+        const sessionRaw = await fsp.readFile(SESSIONS_FILE, "utf8");
+        const persistedSessions = JSON.parse(sessionRaw);
+        if (persistedSessions && typeof persistedSessions === "object" && !Array.isArray(persistedSessions)) {
+          sessions = persistedSessions;
+        }
+      } catch (sessionError) {
+        if (sessionError.code !== "ENOENT") throw sessionError;
+      }
+      storeCache = {
+        ...defaultStore(),
+        ...parsed,
+        users: Array.isArray(parsed.users) ? parsed.users : [],
+        sessions,
+        cards: Array.isArray(parsed.cards) ? parsed.cards : [],
+        decks: Array.isArray(parsed.decks) ? parsed.decks : []
+      };
+    } catch (error) {
+      if (error.code !== "ENOENT") throw error;
+      storeCache = defaultStore();
+    } finally {
+      storeLoadPromise = null;
     }
 
+    return storeCache;
+  })();
+
+  return storeLoadPromise;
+}
+
+async function writeJsonAtomic(filePath, payload) {
+  await fsp.mkdir(path.dirname(filePath), { recursive: true });
+  const tempFile = `${filePath}.${process.pid}.tmp`;
+  await fsp.writeFile(tempFile, JSON.stringify(payload));
+  await fsp.rename(tempFile, filePath);
+}
+
+async function writeChunk(stream, chunk) {
+  if (!stream.write(chunk)) {
+    await once(stream, "drain");
+  }
+}
+
+async function writeStoreAtomic(store) {
+  await fsp.mkdir(DATA_DIR, { recursive: true });
+  const tempFile = `${DATA_FILE}.${process.pid}.tmp`;
+  const output = fs.createWriteStream(tempFile, { encoding: "utf8" });
+
+  try {
+    await writeChunk(output, '{"users":[');
+    for (let index = 0; index < store.users.length; index += 1) {
+      if (index > 0) await writeChunk(output, ",");
+      await writeChunk(output, JSON.stringify(store.users[index]));
+    }
+
+    await writeChunk(output, '],"cards":[');
+    for (let index = 0; index < store.cards.length; index += 1) {
+      if (index > 0) await writeChunk(output, ",");
+      await writeChunk(output, JSON.stringify(store.cards[index]));
+    }
+
+    await writeChunk(output, '],"decks":[');
+    for (let index = 0; index < store.decks.length; index += 1) {
+      if (index > 0) await writeChunk(output, ",");
+      await writeChunk(output, JSON.stringify(store.decks[index]));
+    }
+    output.end("]}");
+    await once(output, "finish");
+    await fsp.rename(tempFile, DATA_FILE);
+  } catch (error) {
+    output.destroy();
+    await fsp.rm(tempFile, { force: true }).catch(() => {});
     throw error;
   }
 }
 
+async function saveSessions(sessions) {
+  await writeJsonAtomic(SESSIONS_FILE, sessions);
+}
+
 async function saveStore(store) {
-  await fsp.mkdir(DATA_DIR, { recursive: true });
-  await fsp.writeFile(DATA_FILE, `${JSON.stringify(store, null, 2)}\n`);
+  await Promise.all([
+    writeStoreAtomic(store),
+    saveSessions(store.sessions)
+  ]);
 }
 
 async function updateStore(mutator) {
-  const store = await loadStore();
-  const result = await mutator(store);
-  await saveStore(store);
-  return result;
+  const runMutation = async () => {
+    const store = await loadStore();
+    const result = await mutator(store);
+    if (result === null) return result;
+
+    try {
+      await saveStore(store);
+    } catch (error) {
+      storeCache = null;
+      throw error;
+    }
+    return result;
+  };
+
+  const pending = storeMutationQueue.then(runMutation, runMutation);
+  storeMutationQueue = pending.then(() => undefined, () => undefined);
+  return pending;
+}
+
+async function updateSessions(mutator) {
+  const runMutation = async () => {
+    const store = await loadStore();
+    const result = await mutator(store.sessions, store);
+    await saveSessions(store.sessions);
+    return result;
+  };
+
+  const pending = storeMutationQueue.then(runMutation, runMutation);
+  storeMutationQueue = pending.then(() => undefined, () => undefined);
+  return pending;
 }
 
 function normalizeEmail(email) {
@@ -75,18 +194,18 @@ function createId(prefix) {
   return `${prefix}-${Date.now().toString(36)}-${crypto.randomBytes(4).toString("hex")}`;
 }
 
-function hashPassword(password) {
+async function hashPassword(password) {
   const passwordSalt = crypto.randomBytes(16).toString("hex");
-  const passwordHash = crypto.scryptSync(String(password), passwordSalt, 64).toString("hex");
+  const passwordHash = Buffer.from(await scrypt(String(password), passwordSalt, 64)).toString("hex");
   return { passwordHash, passwordSalt };
 }
 
-function verifyPassword(password, user) {
+async function verifyPassword(password, user) {
   if (!user?.passwordHash || !user?.passwordSalt) {
     return false;
   }
 
-  const candidate = crypto.scryptSync(String(password), user.passwordSalt, 64);
+  const candidate = Buffer.from(await scrypt(String(password), user.passwordSalt, 64));
   const expected = Buffer.from(user.passwordHash, "hex");
 
   if (candidate.length !== expected.length) {
@@ -171,17 +290,21 @@ function getAuthenticatedUser(req, store) {
 }
 
 async function readJson(req) {
-  let raw = "";
+  const chunks = [];
+  let totalBytes = 0;
 
   for await (const chunk of req) {
-    raw += chunk;
-    if (Buffer.byteLength(raw) > MAX_JSON_BYTES) {
+    const buffer = Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk);
+    totalBytes += buffer.length;
+    if (totalBytes > MAX_JSON_BYTES) {
       const error = new Error("Request body is too large.");
       error.status = 413;
       throw error;
     }
+    chunks.push(buffer);
   }
 
+  const raw = Buffer.concat(chunks, totalBytes).toString("utf8");
   if (!raw.trim()) {
     return {};
   }
@@ -203,6 +326,63 @@ function sendJson(res, status, payload, headers = {}) {
     ...headers
   });
   res.end(JSON.stringify(payload));
+}
+
+function acceptsGzip(req) {
+  return /\bgzip\b/i.test(String(req.headers["accept-encoding"] || ""));
+}
+
+async function streamJsonCollections(req, res, status, fields, collections, headers = {}) {
+  const useGzip = acceptsGzip(req);
+  const responseHeaders = {
+    "Content-Type": "application/json; charset=utf-8",
+    "Cache-Control": "no-store",
+    "X-Content-Type-Options": "nosniff",
+    "Vary": "Accept-Encoding",
+    ...headers
+  };
+
+  if (useGzip) {
+    responseHeaders["Content-Encoding"] = "gzip";
+  }
+
+  res.writeHead(status, responseHeaders);
+  const output = useGzip
+    ? zlib.createGzip({ level: zlib.constants.Z_BEST_SPEED })
+    : res;
+
+  if (useGzip) {
+    output.on("error", () => res.destroy());
+    output.pipe(res);
+  }
+
+  let needsComma = false;
+  await writeChunk(output, "{");
+
+  for (const [key, value] of Object.entries(fields || {})) {
+    if (needsComma) await writeChunk(output, ",");
+    await writeChunk(output, `${JSON.stringify(key)}:${JSON.stringify(value)}`);
+    needsComma = true;
+  }
+
+  for (const [key, collection] of Object.entries(collections || {})) {
+    if (needsComma) await writeChunk(output, ",");
+    await writeChunk(output, `${JSON.stringify(key)}:[`);
+    const records = Array.isArray(collection.records) ? collection.records : [];
+    const mapRecord = typeof collection.mapRecord === "function"
+      ? collection.mapRecord
+      : (record) => record;
+
+    for (let index = 0; index < records.length; index += 1) {
+      if (index > 0) await writeChunk(output, ",");
+      await writeChunk(output, JSON.stringify(mapRecord(records[index])));
+    }
+
+    await writeChunk(output, "]");
+    needsComma = true;
+  }
+
+  output.end("}");
 }
 
 function sendError(res, status, message) {
@@ -260,6 +440,195 @@ function upsertOwnedRecord(records, payload, user, prefix) {
   }
 
   return savedRecord;
+}
+
+function isPlainObject(value) {
+  return Boolean(value) && typeof value === "object" && !Array.isArray(value);
+}
+
+function portableRecord(record) {
+  const excluded = new Set([
+    "ownerId",
+    "ownerEmail",
+    "ownerUsername",
+    "createdAt",
+    "updatedAt",
+    "__proto__",
+    "prototype",
+    "constructor"
+  ]);
+  return Object.fromEntries(
+    Object.entries(record || {}).filter(([key]) => !excluded.has(key))
+  );
+}
+
+function validateImportPackage(body, expectedFormat) {
+  if (!isPlainObject(body) || body.format !== expectedFormat || Number(body.version) !== 1) {
+    const error = new Error("This is not a supported Battle of Creations export file.");
+    error.status = 400;
+    throw error;
+  }
+}
+
+function validateImportRecords(records, label) {
+  if (!Array.isArray(records) || records.length === 0) {
+    const error = new Error(`The import file does not contain any ${label}.`);
+    error.status = 400;
+    throw error;
+  }
+  if (records.length > MAX_IMPORT_RECORDS || records.some((record) => !isPlainObject(record))) {
+    const error = new Error(`The import contains too many or invalid ${label}.`);
+    error.status = 400;
+    throw error;
+  }
+}
+
+function validateUniqueSourceIds(records, label) {
+  const ids = new Set();
+
+  records.forEach((record, index) => {
+    const id = String(record.id || `${label}-${index}`);
+    if (ids.has(id)) {
+      const error = new Error(`The import contains duplicate ${label} identifiers.`);
+      error.status = 400;
+      throw error;
+    }
+    ids.add(id);
+  });
+}
+
+function importCardsIntoStore(store, user, records) {
+  const idMap = new Map();
+  const importedIds = [];
+
+  records.forEach((record, index) => {
+    const sourceId = String(record.id || `card-${index}`);
+    const payload = portableRecord(record);
+    delete payload.id;
+    payload.savedAt = new Date().toISOString();
+    const saved = upsertOwnedRecord(store.cards, payload, user, "card");
+    idMap.set(sourceId, saved.id);
+    importedIds.push(saved.id);
+  });
+
+  return { idMap, importedIds };
+}
+
+function importDecksIntoStore(store, user, records, cardIdMap) {
+  const ownedCardIds = new Set(
+    store.cards.filter((card) => card.ownerId === user.id).map((card) => card.id)
+  );
+  const importedIds = [];
+  let skippedCardReferences = 0;
+
+  records.forEach((record) => {
+    const payload = portableRecord(record);
+    delete payload.id;
+    const sourceCardIds = Array.isArray(record.cardIds) ? record.cardIds : [];
+    payload.cardIds = sourceCardIds.map((sourceId) => {
+      const normalizedId = String(sourceId);
+      const mappedId = cardIdMap.get(normalizedId);
+      if (mappedId) return mappedId;
+      if (ownedCardIds.has(normalizedId)) return normalizedId;
+      skippedCardReferences += 1;
+      return "";
+    }).filter(Boolean).slice(0, 50);
+    if (record.coverCardId) {
+      const sourceCoverId = String(record.coverCardId);
+      payload.coverCardId = cardIdMap.get(sourceCoverId)
+        || (ownedCardIds.has(sourceCoverId) ? sourceCoverId : "");
+    }
+    payload.savedAt = new Date().toISOString();
+    const saved = upsertOwnedRecord(store.decks, payload, user, "deck");
+    importedIds.push(saved.id);
+  });
+
+  return { importedIds, skippedCardReferences };
+}
+
+function pruneBackgroundTasks() {
+  const cutoff = Date.now() - BACKGROUND_TASK_RETENTION_MS;
+  for (const [id, task] of backgroundTasks) {
+    if (
+      ["completed", "failed"].includes(task.status)
+      && Date.parse(task.updatedAt) < cutoff
+    ) {
+      backgroundTasks.delete(id);
+    }
+  }
+}
+
+function publicBackgroundTask(task) {
+  return {
+    id: task.id,
+    kind: task.kind,
+    label: task.label,
+    status: task.status,
+    progress: task.progress,
+    message: task.message,
+    result: task.result || null,
+    createdAt: task.createdAt,
+    updatedAt: task.updatedAt
+  };
+}
+
+function updateBackgroundTask(task, updates) {
+  Object.assign(task, updates, { updatedAt: new Date().toISOString() });
+}
+
+function createBackgroundTask(user, kind, label, runner) {
+  pruneBackgroundTasks();
+  const activeCount = [...backgroundTasks.values()].filter(
+    (task) => task.ownerId === user.id && ["queued", "running"].includes(task.status)
+  ).length;
+
+  if (activeCount >= MAX_ACTIVE_IMPORTS_PER_USER) {
+    const error = new Error("Wait for an active import to finish before starting another.");
+    error.status = 429;
+    throw error;
+  }
+
+  const now = new Date().toISOString();
+  const task = {
+    id: createId("task"),
+    ownerId: user.id,
+    kind,
+    label,
+    status: "queued",
+    progress: 0,
+    message: `${label} queued.`,
+    result: null,
+    createdAt: now,
+    updatedAt: now
+  };
+  backgroundTasks.set(task.id, task);
+
+  setImmediate(async () => {
+    updateBackgroundTask(task, {
+      status: "running",
+      progress: 10,
+      message: `${label} is being processed.`
+    });
+
+    try {
+      const result = await runner(task);
+      updateBackgroundTask(task, {
+        status: "completed",
+        progress: 100,
+        message: `${label} completed.`,
+        result
+      });
+    } catch (error) {
+      updateBackgroundTask(task, {
+        status: "failed",
+        progress: 100,
+        message: error.status ? error.message : `${label} failed.`
+      });
+      console.error(`${label} failed:`, error);
+    }
+  });
+
+  return task;
 }
 
 async function deleteOwnedCards(req, res) {
@@ -369,6 +738,190 @@ async function handleApi(req, res, pathname) {
       return await deleteOwnedDecks(req, res);
     }
 
+    if (method === "GET" && routePath === "/api/library") {
+      const store = await loadStore();
+      const user = requireUser(req, res, store);
+      if (!user) return true;
+      await streamJsonCollections(req, res, 200, {}, {
+        cards: {
+          records: store.cards.filter((card) => card.ownerId === user.id)
+        },
+        decks: {
+          records: store.decks.filter((deck) => deck.ownerId === user.id)
+        }
+      });
+      return true;
+    }
+
+    if (method === "GET" && routePath === "/api/export/cards") {
+      const store = await loadStore();
+      const user = requireUser(req, res, store);
+      if (!user) return true;
+      const dateStamp = new Date().toISOString().slice(0, 10);
+      await streamJsonCollections(req, res, 200, {
+        format: "battle-of-creations/cards",
+        version: 1,
+        exportedAt: new Date().toISOString()
+      }, {
+        cards: {
+          records: store.cards.filter((card) => card.ownerId === user.id),
+          mapRecord: portableRecord
+        }
+      }, {
+        "Content-Disposition": `attachment; filename="battle-of-creations-cards-${dateStamp}.json"`
+      });
+      return true;
+    }
+
+    if (method === "GET" && routePath === "/api/export/decks") {
+      const store = await loadStore();
+      const user = requireUser(req, res, store);
+      if (!user) return true;
+      const decks = store.decks.filter((deck) => deck.ownerId === user.id);
+      const referencedCardIds = new Set(
+        decks.flatMap((deck) =>
+          (Array.isArray(deck.cardIds) ? deck.cardIds : []).map((id) => String(id))
+        )
+      );
+      const cards = store.cards.filter(
+        (card) => card.ownerId === user.id && referencedCardIds.has(String(card.id))
+      );
+      const dateStamp = new Date().toISOString().slice(0, 10);
+      await streamJsonCollections(req, res, 200, {
+        format: "battle-of-creations/decks",
+        version: 1,
+        exportedAt: new Date().toISOString()
+      }, {
+        decks: {
+          records: decks,
+          mapRecord: portableRecord
+        },
+        cards: {
+          records: cards,
+          mapRecord: portableRecord
+        }
+      }, {
+        "Content-Disposition": `attachment; filename="battle-of-creations-decks-${dateStamp}.json"`
+      });
+      return true;
+    }
+
+    const taskMatch = routePath.match(/^\/api\/tasks\/([^/]+)$/);
+    if (method === "GET" && taskMatch) {
+      const store = await loadStore();
+      const user = requireUser(req, res, store);
+      if (!user) return true;
+      pruneBackgroundTasks();
+      const task = backgroundTasks.get(decodeURIComponent(taskMatch[1]));
+      if (!task || task.ownerId !== user.id) {
+        sendError(res, 404, "Background task not found.");
+        return true;
+      }
+      sendJson(res, 200, { task: publicBackgroundTask(task) });
+      return true;
+    }
+
+    if (method === "GET" && routePath === "/api/tasks") {
+      const store = await loadStore();
+      const user = requireUser(req, res, store);
+      if (!user) return true;
+      pruneBackgroundTasks();
+      const tasks = [...backgroundTasks.values()]
+        .filter((task) => task.ownerId === user.id)
+        .sort((first, second) => Date.parse(second.createdAt) - Date.parse(first.createdAt))
+        .map(publicBackgroundTask);
+      sendJson(res, 200, { tasks });
+      return true;
+    }
+
+    if (method === "POST" && routePath === "/api/import/cards") {
+      const body = await readJson(req);
+      validateImportPackage(body, "battle-of-creations/cards");
+      validateImportRecords(body.cards, "cards");
+      validateUniqueSourceIds(body.cards, "card");
+      const store = await loadStore();
+      const user = requireUser(req, res, store);
+      if (!user) return true;
+
+      const task = createBackgroundTask(user, "cards-import", "Card import", async (activeTask) => {
+        const result = await updateStore((latestStore) => {
+          const latestUser = latestStore.users.find((storedUser) => storedUser.id === user.id);
+          if (!latestUser) {
+            const error = new Error("The importing account no longer exists.");
+            error.status = 404;
+            throw error;
+          }
+          updateBackgroundTask(activeTask, {
+            progress: 45,
+            message: "Importing cards into your library."
+          });
+          const imported = importCardsIntoStore(latestStore, latestUser, body.cards);
+          return { importedIds: imported.importedIds };
+        });
+        return {
+          importedCount: result.importedIds.length,
+          importedIds: result.importedIds
+        };
+      });
+
+      sendJson(res, 202, { task: publicBackgroundTask(task) });
+      return true;
+    }
+
+    if (method === "POST" && routePath === "/api/import/decks") {
+      const body = await readJson(req);
+      validateImportPackage(body, "battle-of-creations/decks");
+      validateImportRecords(body.decks, "decks");
+      validateUniqueSourceIds(body.decks, "deck");
+      const bundledCards = Array.isArray(body.cards) ? body.cards : [];
+      if (bundledCards.length > 0) {
+        validateImportRecords(bundledCards, "cards");
+        validateUniqueSourceIds(bundledCards, "card");
+      }
+      const store = await loadStore();
+      const user = requireUser(req, res, store);
+      if (!user) return true;
+
+      const task = createBackgroundTask(user, "decks-import", "Deck import", async (activeTask) => {
+        const result = await updateStore((latestStore) => {
+          const latestUser = latestStore.users.find((storedUser) => storedUser.id === user.id);
+          if (!latestUser) {
+            const error = new Error("The importing account no longer exists.");
+            error.status = 404;
+            throw error;
+          }
+          updateBackgroundTask(activeTask, {
+            progress: 35,
+            message: "Importing deck cards and rebuilding deck references."
+          });
+          const importedCards = bundledCards.length
+            ? importCardsIntoStore(latestStore, latestUser, bundledCards)
+            : { idMap: new Map(), importedIds: [] };
+          const importedDecks = importDecksIntoStore(
+            latestStore,
+            latestUser,
+            body.decks,
+            importedCards.idMap
+          );
+          return {
+            importedCardIds: importedCards.importedIds,
+            importedDeckIds: importedDecks.importedIds,
+            skippedCardReferences: importedDecks.skippedCardReferences
+          };
+        });
+        return {
+          importedCardCount: result.importedCardIds.length,
+          importedDeckCount: result.importedDeckIds.length,
+          importedCardIds: result.importedCardIds,
+          importedDeckIds: result.importedDeckIds,
+          skippedCardReferences: result.skippedCardReferences
+        };
+      });
+
+      sendJson(res, 202, { task: publicBackgroundTask(task) });
+      return true;
+    }
+
     if (req.method === "GET" && pathname === "/api/session") {
       const store = await loadStore();
       sendJson(res, 200, { user: publicUser(getAuthenticatedUser(req, store)) });
@@ -396,7 +949,7 @@ async function handleApi(req, res, pathname) {
         return true;
       }
 
-      const result = await updateStore((store) => {
+      const result = await updateStore(async (store) => {
         if (store.users.some((user) => user.email === email)) {
           const error = new Error("An account with this email already exists.");
           error.status = 409;
@@ -413,7 +966,7 @@ async function handleApi(req, res, pathname) {
           id: createId("user"),
           username,
           email,
-          ...hashPassword(password),
+          ...await hashPassword(password),
           level: 1,
           xp: 0,
           xpMax: 1000,
@@ -440,17 +993,18 @@ async function handleApi(req, res, pathname) {
       const body = await readJson(req);
       const email = normalizeEmail(body.email);
       const password = String(body.password || "");
-      const result = await updateStore((store) => {
-        const user = store.users.find((storedUser) => storedUser.email === email);
+      const store = await loadStore();
+      const user = store.users.find((storedUser) => storedUser.email === email);
 
-        if (!user || !verifyPassword(password, user)) {
-          const error = new Error("Invalid email or password.");
-          error.status = 401;
-          throw error;
-        }
+      if (!user || !await verifyPassword(password, user)) {
+        const error = new Error("Invalid email or password.");
+        error.status = 401;
+        throw error;
+      }
 
+      const result = await updateSessions((sessions) => {
         const token = crypto.randomBytes(32).toString("hex");
-        store.sessions[token] = {
+        sessions[token] = {
           userId: user.id,
           createdAt: new Date().toISOString(),
           expiresAt: new Date(Date.now() + SESSION_MAX_AGE_SECONDS * 1000).toISOString()
@@ -465,8 +1019,8 @@ async function handleApi(req, res, pathname) {
 
     if (req.method === "POST" && pathname === "/api/logout") {
       const token = getSessionToken(req);
-      await updateStore((store) => {
-        delete store.sessions[token];
+      await updateSessions((sessions) => {
+        delete sessions[token];
       });
       sendJson(res, 200, { ok: true }, { "Set-Cookie": expiredSessionCookie() });
       return true;
@@ -482,13 +1036,13 @@ async function handleApi(req, res, pathname) {
         return true;
       }
 
-      await updateStore((store) => {
+      await updateStore(async (store) => {
         const user = store.users.find((storedUser) => storedUser.email === email);
         if (!user) {
           return;
         }
 
-        Object.assign(user, hashPassword(password), {
+        Object.assign(user, await hashPassword(password), {
           passwordUpdatedAt: new Date().toISOString()
         });
 
@@ -512,8 +1066,10 @@ async function handleApi(req, res, pathname) {
         return true;
       }
 
-      sendJson(res, 200, {
-        cards: store.cards.filter((card) => card.ownerId === user.id)
+      await streamJsonCollections(req, res, 200, {}, {
+        cards: {
+          records: store.cards.filter((card) => card.ownerId === user.id)
+        }
       });
       return true;
     }
@@ -542,8 +1098,10 @@ async function handleApi(req, res, pathname) {
         return true;
       }
 
-      sendJson(res, 200, {
-        decks: store.decks.filter((deck) => deck.ownerId === user.id)
+      await streamJsonCollections(req, res, 200, {}, {
+        decks: {
+          records: store.decks.filter((deck) => deck.ownerId === user.id)
+        }
       });
       return true;
     }
@@ -572,6 +1130,10 @@ async function handleApi(req, res, pathname) {
 
     return false;
   } catch (error) {
+    if (res.headersSent) {
+      res.destroy();
+      return true;
+    }
     sendError(res, error.status || 500, error.status ? error.message : "Server error.");
     return true;
   }
@@ -585,7 +1147,15 @@ async function serveStatic(req, res, pathname) {
   }
 
   let requestedPath = pathname === "/" ? "/index.html" : pathname;
-  const protectedPages = new Set(["/home.html", "/cards.html", "/card-creator.html", "/decks.html", "/deck-creator.html"]);
+  const protectedPages = new Set([
+    "/home.html",
+    "/cards.html",
+    "/card-creator.html",
+    "/decks.html",
+    "/deck-creator.html",
+    "/lobby.html",
+    "/battle.html"
+  ]);
 
   if (protectedPages.has(requestedPath)) {
     const store = await loadStore();
@@ -625,9 +1195,12 @@ async function serveStatic(req, res, pathname) {
     })
     .once("open", () => {
       const mimeType = MIME_TYPES[path.extname(filePath).toLowerCase()] || "application/octet-stream";
+      const cacheControl = requestedPath.startsWith("/assets/")
+        ? "public, max-age=3600"
+        : "no-cache";
       res.writeHead(200, {
         "Content-Type": mimeType,
-        "Cache-Control": "no-cache",
+        "Cache-Control": cacheControl,
         "X-Content-Type-Options": "nosniff"
       });
     })
@@ -656,6 +1229,14 @@ server.on("error", (error) => {
   throw error;
 });
 
-server.listen(PORT, () => {
-  console.log(`Battle of Creations server running at http://localhost:${PORT}`);
-});
+loadStore()
+  .then(() => {
+    server.listen(PORT, () => {
+      console.log(`Battle of Creations server running at http://localhost:${PORT}`);
+    });
+  })
+  .catch((error) => {
+    console.error("Could not load the Battle of Creations data store.");
+    console.error(error);
+    process.exit(1);
+  });

@@ -173,6 +173,38 @@ async function apiRequest(path, options = {}) {
   return payload;
 }
 
+async function apiFileRequest(path, file) {
+  if (!file) {
+    throw new Error("Choose a JSON file to import.");
+  }
+  if (file.size > 256 * 1024 * 1024) {
+    throw new Error("The import file is larger than the 256 MB limit.");
+  }
+
+  const response = await fetch(path, {
+    method: "POST",
+    credentials: "same-origin",
+    headers: { "Content-Type": "application/json" },
+    body: file
+  });
+  const rawText = await response.text();
+  let payload = {};
+
+  if (rawText) {
+    try {
+      payload = JSON.parse(rawText);
+    } catch {
+      payload = { error: rawText };
+    }
+  }
+
+  if (!response.ok) {
+    throw new Error(payload.error || payload.message || "File upload failed.");
+  }
+
+  return payload;
+}
+
 async function refreshSession() {
   try {
     const payload = await apiRequest("/api/session");
@@ -200,6 +232,27 @@ async function getMyCards() {
 async function getMyDecks() {
   const payload = await apiRequest("/api/decks");
   return payload.decks || [];
+}
+
+async function getLibrary() {
+  const payload = await apiRequest("/api/library");
+  return {
+    cards: payload.cards || [],
+    decks: payload.decks || []
+  };
+}
+
+async function importCardsPackage(file) {
+  return apiFileRequest("/api/import/cards", file);
+}
+
+async function importDecksPackage(file) {
+  return apiFileRequest("/api/import/decks", file);
+}
+
+async function getBackgroundTask(id) {
+  const payload = await apiRequest(`/api/tasks/${encodeURIComponent(id)}`);
+  return payload.task || null;
 }
 
 async function saveCard(card) {
@@ -239,11 +292,157 @@ window.BattleOfCreationsStore = {
   refreshSession,
   getMyCards,
   getMyDecks,
+  getLibrary,
+  importCardsPackage,
+  importDecksPackage,
+  getBackgroundTask,
   saveCard,
   saveDeck,
   deleteCards,
   deleteDecks
 };
+
+function startServerDownload(path) {
+  const link = document.createElement("a");
+  link.href = path;
+  link.hidden = true;
+  document.body.appendChild(link);
+  link.click();
+  link.remove();
+}
+
+const BACKGROUND_TASK_STORAGE_KEY = "boc-background-tasks-v1";
+
+function readTrackedBackgroundTasks() {
+  try {
+    const tasks = JSON.parse(localStorage.getItem(BACKGROUND_TASK_STORAGE_KEY) || "[]");
+    return Array.isArray(tasks) ? tasks.filter((task) => task?.id) : [];
+  } catch {
+    return [];
+  }
+}
+
+function writeTrackedBackgroundTasks(tasks) {
+  localStorage.setItem(BACKGROUND_TASK_STORAGE_KEY, JSON.stringify(tasks));
+}
+
+function trackBackgroundTask(task) {
+  if (!task?.id) return;
+  const tracked = readTrackedBackgroundTasks().filter((item) => item.id !== task.id);
+  tracked.push({
+    id: task.id,
+    kind: task.kind || "import",
+    label: task.label || "Import",
+    createdAt: task.createdAt || new Date().toISOString()
+  });
+  writeTrackedBackgroundTasks(tracked.slice(-10));
+}
+
+function untrackBackgroundTask(taskId) {
+  writeTrackedBackgroundTasks(
+    readTrackedBackgroundTasks().filter((task) => task.id !== taskId)
+  );
+}
+
+function backgroundTaskMessage(task) {
+  const progress = Number(task?.progress);
+  const suffix = Number.isFinite(progress) && progress > 0 && progress < 100
+    ? ` (${progress}%)`
+    : "";
+  return `${task?.message || task?.label || "Background task"}${suffix}`;
+}
+
+function showGlobalTaskStatus(text, isError = false, autoHide = false) {
+  let element = document.querySelector("[data-global-task-status]");
+  if (!element) {
+    element = document.createElement("div");
+    element.className = "global-task-status";
+    element.dataset.globalTaskStatus = "";
+    element.setAttribute("role", "status");
+    element.setAttribute("aria-live", "polite");
+    document.body.appendChild(element);
+  }
+
+  element.textContent = text;
+  element.classList.toggle("is-error", isError);
+  element.classList.add("is-visible");
+  window.clearTimeout(showGlobalTaskStatus.hideTimer);
+
+  if (autoHide) {
+    showGlobalTaskStatus.hideTimer = window.setTimeout(() => {
+      element.classList.remove("is-visible");
+    }, 6000);
+  }
+}
+
+function delay(milliseconds) {
+  return new Promise((resolve) => window.setTimeout(resolve, milliseconds));
+}
+
+async function waitForBackgroundTask(initialTask, onUpdate = () => {}, announceCompletion = true) {
+  if (!initialTask?.id) {
+    throw new Error("The server did not create a background import task.");
+  }
+
+  let task = initialTask;
+  trackBackgroundTask(task);
+  onUpdate(task);
+
+  while (task && ["queued", "running"].includes(task.status)) {
+    await delay(750);
+    task = await window.BattleOfCreationsStore.getBackgroundTask(task.id);
+    if (!task) {
+      throw new Error("The background import could not be found.");
+    }
+    onUpdate(task);
+  }
+
+  untrackBackgroundTask(initialTask.id);
+
+  if (task?.status === "failed") {
+    throw new Error(task.message || "The background import failed.");
+  }
+
+  if (announceCompletion) {
+    document.dispatchEvent(new CustomEvent("boc:background-task-complete", {
+      detail: task
+    }));
+  }
+  return task;
+}
+
+async function resumeBackgroundTasks() {
+  const tracked = readTrackedBackgroundTasks();
+
+  tracked.forEach(async (savedTask) => {
+    try {
+      const task = await window.BattleOfCreationsStore.getBackgroundTask(savedTask.id);
+      if (!task) {
+        untrackBackgroundTask(savedTask.id);
+        return;
+      }
+
+      const completed = await waitForBackgroundTask(task, (current) => {
+        showGlobalTaskStatus(backgroundTaskMessage(current));
+      });
+      showGlobalTaskStatus(backgroundTaskMessage(completed), false, true);
+    } catch (error) {
+      untrackBackgroundTask(savedTask.id);
+      showGlobalTaskStatus(error.message || "A background import failed.", true, true);
+    }
+  });
+}
+
+function updateTransferStatus(element, text, isError = false) {
+  if (!element) return;
+  element.textContent = text;
+  element.hidden = !text;
+  element.classList.toggle("is-error", isError);
+}
+
+function yieldToBrowser() {
+  return new Promise((resolve) => window.requestAnimationFrame(() => resolve()));
+}
 
 function showFormMessage(form, text, isError = false) {
   const message = form.querySelector(".form-message");
@@ -292,6 +491,12 @@ const sessionReady = refreshSession().then((user) => {
 
   hydrateCurrentUserUI();
   return user;
+});
+
+sessionReady.then((user) => {
+  if (user) {
+    resumeBackgroundTasks();
+  }
 });
 
 document.querySelectorAll("[data-logout]").forEach((link) => {
@@ -436,6 +641,10 @@ if (cardLibrary) {
   const deleteDialogCount = cardLibrary.querySelector("[data-delete-dialog-count]");
   const cancelConfirmDeleteButton = cardLibrary.querySelector("[data-cancel-confirm-delete]");
   const runDeleteButton = cardLibrary.querySelector("[data-run-delete]");
+  const exportCardsButton = cardLibrary.querySelector("[data-export-cards]");
+  const importCardsButton = cardLibrary.querySelector("[data-import-cards]");
+  const importCardsInput = cardLibrary.querySelector("[data-import-cards-file]");
+  const transferStatus = cardLibrary.querySelector("[data-transfer-status]");
   const initiallySelectedCardId = new URLSearchParams(window.location.search).get("card") || "";
   let allCards = [];
   let currentPage = 1;
@@ -997,6 +1206,52 @@ if (cardLibrary) {
     }
   }
 
+  async function exportCards() {
+    if (allCards.length === 0) {
+      updateTransferStatus(transferStatus, "There are no cards to export.", true);
+      return;
+    }
+
+    try {
+      startServerDownload("/api/export/cards");
+      updateTransferStatus(
+        transferStatus,
+        `Export started for ${allCards.length} card${allCards.length === 1 ? "" : "s"}. The download can continue while you use another page.`
+      );
+    } catch (error) {
+      updateTransferStatus(transferStatus, error.message || "Cards could not be exported.", true);
+    }
+  }
+
+  async function importCards(event) {
+    const file = event.target.files?.[0];
+    if (!file) return;
+
+    exportCardsButton?.setAttribute("disabled", "");
+    importCardsButton?.setAttribute("disabled", "");
+    updateTransferStatus(transferStatus, `Importing ${file.name}...`);
+    await yieldToBrowser();
+
+    try {
+      const response = await window.BattleOfCreationsStore.importCardsPackage(file);
+      const completedTask = await waitForBackgroundTask(response.task, (task) => {
+        updateTransferStatus(transferStatus, backgroundTaskMessage(task));
+      }, false);
+      const result = completedTask.result || {};
+      await loadLibraryCards();
+      updateTransferStatus(
+        transferStatus,
+        `${result.importedCount || 0} card${result.importedCount === 1 ? "" : "s"} imported.`
+      );
+    } catch (error) {
+      updateTransferStatus(transferStatus, error.message || "Cards could not be imported.", true);
+    } finally {
+      event.target.value = "";
+      exportCardsButton?.removeAttribute("disabled");
+      importCardsButton?.removeAttribute("disabled");
+    }
+  }
+
   searchInput?.addEventListener("input", () => {
     currentPage = 1;
     renderCards();
@@ -1014,6 +1269,14 @@ if (cardLibrary) {
   confirmDeleteButton?.addEventListener("click", openDeleteDialog);
   cancelConfirmDeleteButton?.addEventListener("click", closeDeleteDialog);
   runDeleteButton?.addEventListener("click", runBulkDelete);
+  exportCardsButton?.addEventListener("click", exportCards);
+  importCardsButton?.addEventListener("click", () => importCardsInput?.click());
+  importCardsInput?.addEventListener("change", importCards);
+  document.addEventListener("boc:background-task-complete", (event) => {
+    if (event.detail?.kind === "cards-import") {
+      loadLibraryCards();
+    }
+  });
   deleteDialog?.addEventListener("click", (event) => {
     if (event.target === deleteDialog) {
       closeDeleteDialog();
@@ -1048,6 +1311,10 @@ if (deckLibrary) {
   const deckDeleteDialogCount = deckLibrary.querySelector("[data-delete-dialog-count]");
   const deckCancelConfirmDeleteButton = deckLibrary.querySelector("[data-cancel-confirm-delete]");
   const deckRunDeleteButton = deckLibrary.querySelector("[data-run-delete]");
+  const exportDecksButton = deckLibrary.querySelector("[data-export-decks]");
+  const importDecksButton = deckLibrary.querySelector("[data-import-decks]");
+  const importDecksInput = deckLibrary.querySelector("[data-import-decks-file]");
+  const deckTransferStatus = deckLibrary.querySelector("[data-transfer-status]");
 
   let allDecks = [];
   let allCards = [];
@@ -1374,14 +1641,63 @@ if (deckLibrary) {
     const user = await sessionReady;
     if (!user) return;
     try {
-      [allDecks, allCards] = await Promise.all([
-        window.BattleOfCreationsStore.getMyDecks(),
-        window.BattleOfCreationsStore.getMyCards()
-      ]);
+      const library = await window.BattleOfCreationsStore.getLibrary();
+      allDecks = library.decks;
+      allCards = library.cards;
       renderDeckDetail();
       renderDecks();
     } catch (error) {
       if (deckCountLabel) deckCountLabel.textContent = error.message || "Decks could not be loaded.";
+    }
+  }
+
+  async function exportDecks() {
+    if (allDecks.length === 0) {
+      updateTransferStatus(deckTransferStatus, "There are no decks to export.", true);
+      return;
+    }
+
+    try {
+      updateTransferStatus(
+        deckTransferStatus,
+        `Export started for ${allDecks.length} deck${allDecks.length === 1 ? "" : "s"}. Referenced cards are included and the download can continue while you use another page.`
+      );
+      startServerDownload("/api/export/decks");
+    } catch (error) {
+      updateTransferStatus(deckTransferStatus, error.message || "Decks could not be exported.", true);
+    }
+  }
+
+  async function importDecks(event) {
+    const file = event.target.files?.[0];
+    if (!file) return;
+
+    exportDecksButton?.setAttribute("disabled", "");
+    importDecksButton?.setAttribute("disabled", "");
+    updateTransferStatus(deckTransferStatus, `Importing ${file.name}...`);
+    await yieldToBrowser();
+
+    try {
+      const response = await window.BattleOfCreationsStore.importDecksPackage(file);
+      const completedTask = await waitForBackgroundTask(response.task, (task) => {
+        updateTransferStatus(deckTransferStatus, backgroundTaskMessage(task));
+      }, false);
+      const result = completedTask.result || {};
+      await loadDeckLibrary();
+      const skipped = Number(result.skippedCardReferences || 0);
+      const skippedText = skipped > 0
+        ? ` ${skipped} missing card reference${skipped === 1 ? " was" : "s were"} skipped.`
+        : "";
+      updateTransferStatus(
+        deckTransferStatus,
+        `${result.importedDeckCount || 0} deck${result.importedDeckCount === 1 ? "" : "s"} and ${result.importedCardCount || 0} card${result.importedCardCount === 1 ? "" : "s"} imported.${skippedText}`
+      );
+    } catch (error) {
+      updateTransferStatus(deckTransferStatus, error.message || "Decks could not be imported.", true);
+    } finally {
+      event.target.value = "";
+      exportDecksButton?.removeAttribute("disabled");
+      importDecksButton?.removeAttribute("disabled");
     }
   }
 
@@ -1392,6 +1708,14 @@ if (deckLibrary) {
   deckConfirmDeleteButton?.addEventListener("click", openDeckDeleteDialog);
   deckCancelConfirmDeleteButton?.addEventListener("click", closeDeckDeleteDialog);
   deckRunDeleteButton?.addEventListener("click", runBulkDeckDelete);
+  exportDecksButton?.addEventListener("click", exportDecks);
+  importDecksButton?.addEventListener("click", () => importDecksInput?.click());
+  importDecksInput?.addEventListener("change", importDecks);
+  document.addEventListener("boc:background-task-complete", (event) => {
+    if (event.detail?.kind === "decks-import") {
+      loadDeckLibrary();
+    }
+  });
   deckDeleteDialog?.addEventListener("click", (event) => {
     if (event.target === deckDeleteDialog) closeDeckDeleteDialog();
   });
@@ -1947,11 +2271,11 @@ if (deckCreatorEl) {
     const user = await sessionReady;
     if (!user) return;
     try {
-      dcAllCards = await window.BattleOfCreationsStore.getMyCards();
+      const library = await window.BattleOfCreationsStore.getLibrary();
+      dcAllCards = library.cards;
       if (editDeckId) {
         if (dcTitleEl) dcTitleEl.textContent = "Edit Deck";
-        const decks = await window.BattleOfCreationsStore.getMyDecks();
-        const existing = decks.find((d) => d.id === editDeckId);
+        const existing = library.decks.find((d) => d.id === editDeckId);
         if (existing) {
           if (dcNameInput) {
             dcNameInput.value = existing.name || existing.deckName || "";
@@ -3594,6 +3918,10 @@ if (lobbyEl) {
   const statusEl        = $("[data-bf-status]");
   const statusMsgEl     = $("[data-bf-status-msg]");
   const endTurnBtn      = $("[data-bf-end-turn]");
+  const sidebarToggleBtn = $("[data-bf-sidebar-toggle]");
+  const sidebarBackdrop = $("[data-bf-sidebar-backdrop]");
+  const sidebarEl       = $("[data-bf-sidebar]");
+  const battlePageEl    = $(".bf-page");
   const surrenderBtn    = $("[data-bf-surrender]");
   const usernameEl      = $("[data-bf-username]");
   const phaseButtons    = Array.from(document.querySelectorAll("[data-bf-phase]"));
@@ -3605,6 +3933,57 @@ if (lobbyEl) {
   const resultSubtitleEl = $("[data-result-subtitle]");
   const resultRematchBtn = $("[data-result-rematch]");
   const resultExitBtn    = $("[data-result-exit]");
+
+  const compactViewport = window.matchMedia("(max-width: 760px)");
+  let sidebarViewportIsCompact = compactViewport.matches;
+
+  function isCompactInteractionMode() {
+    return window.matchMedia("(max-width: 760px), (hover: none), (pointer: coarse)").matches;
+  }
+
+  function sidebarIsVisible() {
+    if (!battlePageEl) return false;
+    return compactViewport.matches
+      ? battlePageEl.classList.contains("is-sidebar-open")
+      : !battlePageEl.classList.contains("is-sidebar-collapsed");
+  }
+
+  function updateSidebarState() {
+    const visible = sidebarIsVisible();
+    sidebarToggleBtn?.setAttribute("aria-expanded", visible ? "true" : "false");
+    sidebarEl?.setAttribute("aria-hidden", visible ? "false" : "true");
+    if (sidebarEl) sidebarEl.inert = !visible;
+  }
+
+  function closeMobileSidebar() {
+    if (!compactViewport.matches || !battlePageEl) return;
+    battlePageEl.classList.remove("is-sidebar-open");
+    updateSidebarState();
+  }
+
+  function toggleSidebar() {
+    if (!battlePageEl) return;
+    if (compactViewport.matches) {
+      battlePageEl.classList.toggle("is-sidebar-open");
+    } else {
+      battlePageEl.classList.toggle("is-sidebar-collapsed");
+    }
+    updateSidebarState();
+  }
+
+  function syncSidebarViewport() {
+    const nextCompact = compactViewport.matches;
+    if (nextCompact !== sidebarViewportIsCompact) {
+      battlePageEl?.classList.remove("is-sidebar-open", "is-sidebar-collapsed");
+      sidebarViewportIsCompact = nextCompact;
+    }
+    updateSidebarState();
+  }
+
+  sidebarToggleBtn?.addEventListener("click", toggleSidebar);
+  sidebarBackdrop?.addEventListener("click", closeMobileSidebar);
+  compactViewport.addEventListener?.("change", syncSidebarViewport);
+  updateSidebarState();
 
   function duelDeckName(deck) {
     return String(deck?.name || deck?.deckName || "Unnamed Deck");
@@ -4094,11 +4473,13 @@ if (lobbyEl) {
     if (playerLpFill) {
       const pct = Math.min(100, Math.max(0, (state.playerLP / MAX_LP) * 100));
       playerLpFill.style.height = pct + "%";
+      playerLpFill.style.setProperty("--lp-percent", pct + "%");
       playerLpFill.classList.toggle("is-low", pct <= 25);
     }
     if (aiLpFill) {
       const pct = Math.min(100, Math.max(0, (state.aiLP / MAX_LP) * 100));
       aiLpFill.style.height = pct + "%";
+      aiLpFill.style.setProperty("--lp-percent", pct + "%");
       aiLpFill.classList.toggle("is-low", pct <= 25);
     }
   }
@@ -4268,6 +4649,10 @@ if (lobbyEl) {
   function animateDrawCard(owner, card) {
     const handEl = ownerHandEl(owner);
     const target = handEl?.lastElementChild || handEl;
+    if (handEl && target && isCompactInteractionMode()) {
+      handEl.scrollLeft = Math.max(0, handEl.scrollWidth - handEl.clientWidth);
+      target.getBoundingClientRect();
+    }
     playSfx("drawCard");
     return animateCardMove(card, ownerDeckPile(owner), target, "is-draw", {
       faceDown: owner === "ai"
@@ -4486,7 +4871,7 @@ if (lobbyEl) {
     setTimeout(() => floatEl.remove(), 1050);
   }
 
-  function renderSlot(slotEl, card, faceDown) {
+  function renderSlot(slotEl, card, faceDown, allowPreview = true) {
     slotEl.innerHTML = "";
     slotEl.classList.remove("is-defense");
     if (!card) {
@@ -4499,6 +4884,7 @@ if (lobbyEl) {
     if (actualFaceDown) {
       const back = document.createElement("div");
       back.className = "bf-slot-face bf-card-back";
+      if (allowPreview) bindCardHoldPreview(back, card);
       slotEl.appendChild(back);
       return;
     }
@@ -4530,6 +4916,7 @@ if (lobbyEl) {
     }
 
     slotEl.appendChild(face);
+    if (allowPreview) bindCardHoldPreview(face, card);
   }
 
   function modeChangeKey(owner, slotIdx) {
@@ -4710,7 +5097,7 @@ if (lobbyEl) {
     pmSlots.forEach((el, i) => {
       el.onmouseenter = null;
       el.onmouseleave = null;
-      renderSlot(el, state.playerMonster[i], false);
+      renderSlot(el, state.playerMonster[i], false, true);
       el.classList.toggle("is-attack-ready", canPlayerMonsterAttack(i));
       addAttackIcon(el, i);
       if (state.playerMonster[i]) {
@@ -4725,7 +5112,7 @@ if (lobbyEl) {
     psSlots.forEach((el, i) => {
       el.onmouseenter = null;
       el.onmouseleave = null;
-      renderSlot(el, state.playerSpellTrap[i], false);
+      renderSlot(el, state.playerSpellTrap[i], false, true);
       if (state.playerSpellTrap[i]) {
         el.onmouseenter = () => {
           if (state.playerSpellTrap[i]) showCardInfo(state.playerSpellTrap[i]);
@@ -4738,7 +5125,7 @@ if (lobbyEl) {
     amSlots.forEach((el, i) => {
       el.onmouseenter = null;
       el.onmouseleave = null;
-      renderSlot(el, state.aiMonster[i], false);
+      renderSlot(el, state.aiMonster[i], false, !Boolean(state.aiMonster[i]?._faceDown));
       if (state.aiMonster[i]) {
         el.onmouseenter = () => {
           if (state.aiMonster[i]) showCardInfo(state.aiMonster[i]);
@@ -4748,7 +5135,7 @@ if (lobbyEl) {
     });
 
     const asSlots = Array.from(aiSTZone.querySelectorAll(".bf-slot"));
-    asSlots.forEach((el, i) => renderSlot(el, state.aiSpellTrap[i], !!state.aiSpellTrap[i]));
+    asSlots.forEach((el, i) => renderSlot(el, state.aiSpellTrap[i], !!state.aiSpellTrap[i], false));
     updateAttackIconAim();
   }
 
@@ -4779,14 +5166,24 @@ if (lobbyEl) {
         ${isMonster ? `<div class="bf-hand-card-stats"><span>ATK ${cardAtk(card)}</span><span>DEF ${cardDef(card)}</span></div>` : ""}
       `;
       el.appendChild(details);
+      bindCardHoldPreview(el, card);
 
       el.addEventListener("mouseenter", () => showCardInfo(card));
       el.addEventListener("mouseleave", () => { if (state.selectedHandIdx !== i) clearCardInfo(); });
       el.addEventListener("click", () => {
+        if (cardClickWasHeld()) return;
         if (handleSpellHandSelection(i, el)) return;
+        if (isCompactInteractionMode()) {
+          openHandCardMenu(i, el);
+          return;
+        }
         selectHandCard(i);
       });
-      el.addEventListener("contextmenu", (e) => { e.preventDefault(); openHandCardMenu(i, el); });
+      el.addEventListener("contextmenu", (event) => {
+        event.preventDefault();
+        if (isCompactInteractionMode() || cardClickWasHeld()) return;
+        openHandCardMenu(i, el);
+      });
       playerHandEl.appendChild(el);
     });
   }
@@ -4906,6 +5303,8 @@ if (lobbyEl) {
   let _deckDialogEl = null;
   let _trapPromptEl = null;
   let _spellResolveBtnEl = null;
+  let _holdPreviewEl = null;
+  let suppressCardClickUntil = 0;
 
   function isPlayerMainPhase() {
     return state.activePlayer === "player" && (state.phase === "main1" || state.phase === "main2");
@@ -6061,6 +6460,84 @@ if (lobbyEl) {
     return preview;
   }
 
+  function closeCardHoldPreview() {
+    if (!_holdPreviewEl) return;
+    _holdPreviewEl.remove();
+    _holdPreviewEl = null;
+  }
+
+  function openCardHoldPreview(card) {
+    if (!card) return;
+    closeCardHoldPreview();
+    closeHandMenu();
+    showCardInfo(card);
+
+    const overlay = document.createElement("div");
+    overlay.className = "bf-hold-preview";
+    overlay.setAttribute("role", "dialog");
+    overlay.setAttribute("aria-modal", "true");
+    overlay.setAttribute("aria-label", `${cardNameStr(card)} card details`);
+
+    const preview = createTrapPromptCard(card);
+    preview.classList.add("is-hold-preview");
+    overlay.appendChild(preview);
+    overlay.addEventListener("click", closeCardHoldPreview);
+    document.body.appendChild(overlay);
+    _holdPreviewEl = overlay;
+  }
+
+  function cardClickWasHeld() {
+    return Date.now() < suppressCardClickUntil;
+  }
+
+  function bindCardHoldPreview(element, card) {
+    if (!element || !card) return;
+    let timer = null;
+    let previewOpened = false;
+    let startX = 0;
+    let startY = 0;
+
+    const clearTimer = () => {
+      if (timer !== null) {
+        window.clearTimeout(timer);
+        timer = null;
+      }
+    };
+
+    const finish = () => {
+      clearTimer();
+      if (previewOpened) {
+        suppressCardClickUntil = Date.now() + 450;
+        previewOpened = false;
+        closeCardHoldPreview();
+      }
+    };
+
+    element.addEventListener("pointerdown", (event) => {
+      if (event.pointerType === "mouse" && event.button !== 0) return;
+      startX = event.clientX;
+      startY = event.clientY;
+      previewOpened = false;
+      element.setPointerCapture?.(event.pointerId);
+      timer = window.setTimeout(() => {
+        previewOpened = true;
+        suppressCardClickUntil = Date.now() + 450;
+        openCardHoldPreview(card);
+      }, 420);
+    });
+
+    element.addEventListener("pointermove", (event) => {
+      if (previewOpened || timer === null) return;
+      if (Math.hypot(event.clientX - startX, event.clientY - startY) > 10) clearTimer();
+    });
+    element.addEventListener("pointerup", finish);
+    element.addEventListener("pointercancel", finish);
+    element.addEventListener("lostpointercapture", finish);
+    element.addEventListener("contextmenu", (event) => {
+      if (previewOpened || cardClickWasHeld()) event.preventDefault();
+    });
+  }
+
   async function animateTrapCardReveal(card) {
     if (!card) return;
 
@@ -6475,17 +6952,7 @@ if (lobbyEl) {
       menu.appendChild(btn);
     });
 
-    document.body.appendChild(menu);
-    const rect = anchorEl.getBoundingClientRect();
-    const mw = menu.offsetWidth;
-    let left = rect.left + rect.width / 2 - mw / 2;
-    left = Math.max(4, Math.min(left, window.innerWidth - mw - 4));
-    menu.style.left = left + "px";
-    menu.style.top = rect.top + "px";
-    menu.style.transform = "translateY(calc(-100% - 6px))";
-    requestAnimationFrame(() => {
-      document.addEventListener("click", closeHandMenu, { once: true });
-    });
+    positionContextMenu(menu, anchorEl);
   }
 
   function isNormalSummonAction(action) {
@@ -6590,6 +7057,7 @@ if (lobbyEl) {
     // Player monster slots
     Array.from(playerMonZone.querySelectorAll(".bf-slot")).forEach((slot, i) => {
       slot.addEventListener("click", async () => {
+        if (cardClickWasHeld()) return;
         if (handleFieldSelectionTarget("player", "monster", i)) return;
         if (await completeSpellSpecialSummon(i)) return;
         if (await completeSpellRevive(i)) return;
@@ -6610,6 +7078,10 @@ if (lobbyEl) {
           }
           return;
         }
+        if (isCompactInteractionMode() && state.playerMonster[i] && !state.pendingAction) {
+          openPlayerMonsterMenu(i, slot);
+          return;
+        }
         if (state.phase === "battle" && state.activePlayer === "player") {
           attackWithMonster(i);
         } else {
@@ -6618,20 +7090,22 @@ if (lobbyEl) {
       });
       slot.addEventListener("contextmenu", (event) => {
         event.preventDefault();
-        if (!state.pendingAction && state.playerMonster[i]?._faceDown) {
-          openFlipSummonMenu(i, slot);
-        } else if (!state.pendingAction && state.playerMonster[i]) {
-          openMonsterModeMenu(i, slot);
-        }
+        if (isCompactInteractionMode() || cardClickWasHeld()) return;
+        if (!state.pendingAction && state.playerMonster[i]) openPlayerMonsterMenu(i, slot);
       });
     });
 
     // Player spell/trap slots
     Array.from(playerSTZone.querySelectorAll(".bf-slot")).forEach((slot, i) => {
       slot.addEventListener("click", async () => {
+        if (cardClickWasHeld()) return;
         if (handleFieldSelectionTarget("player", "spelltrap", i)) return;
         if (await handleSpellFieldTarget("player", "spelltrap", i)) return;
         const fieldCard = state.playerSpellTrap[i];
+        if (isCompactInteractionMode() && !state.pendingAction && fieldCard) {
+          openFieldSpellTrapMenu(i, slot);
+          return;
+        }
         if (!state.pendingAction && fieldCard && cardTypeName(fieldCard) === "spell" && isPlayerMainPhase()) {
           await activateSpellFromField(i);
           return;
@@ -6640,12 +7114,14 @@ if (lobbyEl) {
       });
       slot.addEventListener("contextmenu", (event) => {
         event.preventDefault();
+        if (isCompactInteractionMode() || cardClickWasHeld()) return;
         openFieldSpellTrapMenu(i, slot);
       });
     });
 
     Array.from(aiMonZone.querySelectorAll(".bf-slot")).forEach((slot, i) => {
       slot.addEventListener("click", async () => {
+        if (cardClickWasHeld()) return;
         if (handleFieldSelectionTarget("ai", "monster", i)) return;
         if (await handleSpellFieldTarget("ai", "monster", i)) return;
         attackSelectedTarget(i);
@@ -6654,6 +7130,7 @@ if (lobbyEl) {
 
     Array.from(aiSTZone.querySelectorAll(".bf-slot")).forEach((slot, i) => {
       slot.addEventListener("click", async () => {
+        if (cardClickWasHeld()) return;
         if (handleFieldSelectionTarget("ai", "spelltrap", i)) return;
         await handleSpellFieldTarget("ai", "spelltrap", i);
       });
@@ -7079,6 +7556,60 @@ if (lobbyEl) {
       menu.appendChild(btn);
     });
 
+    positionContextMenu(menu, anchorEl);
+  }
+
+  function openPlayerMonsterMenu(slotIdx, anchorEl) {
+    closeHandMenu();
+    const card = state.playerMonster[slotIdx];
+    if (!card) return;
+
+    const menu = document.createElement("div");
+    menu.className = "bf-hand-menu";
+    _handMenuEl = menu;
+
+    const label = document.createElement("div");
+    label.className = "bf-hand-menu-label";
+    label.textContent = card._faceDown ? "Face-Down Monster" : "Monster Actions";
+    menu.appendChild(label);
+
+    let actionCount = 0;
+    const addItem = (text, action, options = {}) => {
+      const btn = document.createElement("button");
+      btn.className = "bf-hand-menu-item";
+      btn.type = "button";
+      btn.textContent = text;
+      btn.disabled = Boolean(options.disabled);
+      btn.addEventListener("click", async () => {
+        closeHandMenu();
+        await action();
+      });
+      menu.appendChild(btn);
+      actionCount++;
+    };
+
+    addItem("View Details", () => openCardHoldPreview(card));
+
+    if (card._faceDown) {
+      const canFlip = canFlipSummon(slotIdx);
+      addItem("Flip Summon - Attack", () => flipSummon(slotIdx, "attack"), { disabled: !canFlip });
+      addItem("Flip Summon - Defense", () => flipSummon(slotIdx, "defense"), { disabled: !canFlip });
+    } else {
+      if (state.activePlayer === "player" && state.phase === "battle") {
+        addItem("Attack", () => attackWithMonster(slotIdx), { disabled: !canPlayerMonsterAttack(slotIdx) });
+      }
+      if (state.activePlayer === "player" && (state.phase === "main1" || state.phase === "main2")) {
+        const canChange = canChangeMonsterMode("player", slotIdx);
+        addItem("Attack Position", () => changeMonsterMode("player", slotIdx, "attack"), {
+          disabled: !canChange || card._position === "attack"
+        });
+        addItem("Defense Position", () => changeMonsterMode("player", slotIdx, "defense"), {
+          disabled: !canChange || card._position === "defense"
+        });
+      }
+    }
+
+    if (!actionCount) return;
     positionContextMenu(menu, anchorEl);
   }
 
@@ -8131,6 +8662,17 @@ if (lobbyEl) {
 
   function positionContextMenu(menu, anchorEl) {
     document.body.appendChild(menu);
+    if (isCompactInteractionMode()) {
+      menu.classList.add("is-mobile-sheet");
+      menu.style.left = "";
+      menu.style.top = "";
+      menu.style.transform = "";
+      requestAnimationFrame(() => {
+        document.addEventListener("click", closeHandMenu, { once: true });
+      });
+      return;
+    }
+
     const rect = anchorEl.getBoundingClientRect();
     const mw = menu.offsetWidth;
     let left = rect.left + rect.width / 2 - mw / 2;
@@ -8175,6 +8717,18 @@ if (lobbyEl) {
     label.className = "bf-hand-menu-label";
     label.textContent = "Deck Actions";
     menu.appendChild(label);
+
+    if (state.activePlayer === "player" && state.phase === "draw" && !state.hasDrawn) {
+      const drawBtn = document.createElement("button");
+      drawBtn.className = "bf-hand-menu-item";
+      drawBtn.type = "button";
+      drawBtn.textContent = "Draw Card";
+      drawBtn.addEventListener("click", async () => {
+        closeHandMenu();
+        await doDraw();
+      });
+      menu.appendChild(drawBtn);
+    }
 
     const viewBtn = document.createElement("button");
     viewBtn.className = "bf-hand-menu-item";
@@ -8235,29 +8789,22 @@ if (lobbyEl) {
         await activateTrapFromField(slotIdx);
       }
     }));
+    menu.insertBefore(item("View Details", async () => {
+      openCardHoldPreview(card);
+    }), menu.children[1]);
     menu.appendChild(item("Send to Graveyard", async () => {
       await sendFieldSpellTrapToGraveyard(slotIdx);
     }, "is-danger"));
 
-    document.body.appendChild(menu);
-    const rect = anchorEl.getBoundingClientRect();
-    const mw = menu.offsetWidth;
-    let left = rect.left + rect.width / 2 - mw / 2;
-    left = Math.max(4, Math.min(left, window.innerWidth - mw - 4));
-    menu.style.left = left + "px";
-    menu.style.top = rect.top + "px";
-    menu.style.transform = "translateY(calc(-100% - 6px))";
-    requestAnimationFrame(() => {
-      document.addEventListener("click", closeHandMenu, { once: true });
-    });
+    positionContextMenu(menu, anchorEl);
   }
 
   function openHandCardMenu(idx, anchorEl) {
     closeHandMenu();
     if (state.activePlayer !== "player") return;
     if (isSpellResolutionBusy()) { showStatus("Finish resolving the active spell first."); return; }
-    if (state.phase === "draw") return;
     const card = state.playerHand[idx];
+    if (!card) return;
     const t = cardTypeName(card);
     const inMain = state.phase === "main1" || state.phase === "main2";
 
@@ -8280,12 +8827,35 @@ if (lobbyEl) {
     function sep() { const d = document.createElement("div"); d.className = "bf-hand-menu-sep"; return d; }
     function lbl(text) { const d = document.createElement("div"); d.className = "bf-hand-menu-label"; d.textContent = text; return d; }
 
+    menu.appendChild(lbl("Card Actions"));
+    const viewDetailsBtn = document.createElement("button");
+    viewDetailsBtn.className = "bf-hand-menu-item";
+    viewDetailsBtn.type = "button";
+    viewDetailsBtn.textContent = "View Details";
+    viewDetailsBtn.addEventListener("click", () => {
+      closeHandMenu();
+      openCardHoldPreview(card);
+    });
+    menu.appendChild(viewDetailsBtn);
+
+    if (state.phase === "draw") {
+      const drawFirstBtn = document.createElement("button");
+      drawFirstBtn.className = "bf-hand-menu-item";
+      drawFirstBtn.type = "button";
+      drawFirstBtn.textContent = "Draw a card first";
+      disableMenuButton(drawFirstBtn);
+      menu.appendChild(drawFirstBtn);
+      positionContextMenu(menu, anchorEl);
+      return;
+    }
+
     if (inMain) {
       if (t === "monster") {
         const alreadySummoned = state.hasNormalSummoned;
         const tributesNeeded = tributeRequirement(card);
         const fieldCount = state.playerMonster.filter(m => m !== null).length;
         const canTribute = fieldCount >= tributesNeeded;
+        menu.appendChild(sep());
         menu.appendChild(lbl("Monster Actions"));
         const nsSuffix = tributesNeeded > 0
           ? ` (${tributesNeeded} tribute${tributesNeeded > 1 ? "s" : ""})`
@@ -8309,11 +8879,13 @@ if (lobbyEl) {
         menu.appendChild(setBtn);
         menu.appendChild(sep());
       } else if (t === "spell") {
+        menu.appendChild(sep());
         menu.appendChild(lbl("Spell Actions"));
         menu.appendChild(item("Activate", "activate-spell"));
         menu.appendChild(item("Set Face-Down", "set-spell"));
         menu.appendChild(sep());
       } else if (t === "trap") {
+        menu.appendChild(sep());
         menu.appendChild(lbl("Trap Actions"));
         menu.appendChild(item("Set Face-Down", "set-trap"));
         menu.appendChild(sep());
@@ -8322,17 +8894,7 @@ if (lobbyEl) {
     menu.appendChild(item("Send to Graveyard", "to-gy", "is-danger"));
     menu.appendChild(item("Return to Top of Deck", "to-deck-top"));
 
-    document.body.appendChild(menu);
-    const rect = anchorEl.getBoundingClientRect();
-    const mw = menu.offsetWidth;
-    let left = rect.left + rect.width / 2 - mw / 2;
-    left = Math.max(4, Math.min(left, window.innerWidth - mw - 4));
-    menu.style.left = left + "px";
-    menu.style.top  = rect.top + "px";
-    menu.style.transform = "translateY(calc(-100% - 6px))";
-    requestAnimationFrame(() => {
-      document.addEventListener("click", closeHandMenu, { once: true });
-    });
+    positionContextMenu(menu, anchorEl);
   }
 
   function doCardAction(action, handIdx) {
@@ -8428,10 +8990,12 @@ if (lobbyEl) {
 
   // ── Phase button clicks ─────────────────────────────────
   const phaseOrder = ["draw", "main1", "battle", "main2", "end"];
+  let turnTransitionPromptOpen = false;
 
   phaseButtons.forEach((btn) => {
     btn.addEventListener("click", async () => {
       if (state.activePlayer !== "player") return;
+      if (turnTransitionPromptOpen) return;
       if (isSpellResolutionBusy()) {
         showStatus("Finish resolving the active spell first.");
         return;
@@ -8454,6 +9018,16 @@ if (lobbyEl) {
 
       // Handle draw phase manually if user clicks Draw Phase
       if (btn.dataset.bfPhase === "draw") return;
+
+      turnTransitionPromptOpen = true;
+      const confirmed = await promptTrapDecision(
+        "Change Phase?",
+        `Move from ${phaseLabel(state.phase)} Phase to ${phaseLabel(btn.dataset.bfPhase)} Phase?`,
+        "Continue",
+        "Stay"
+      );
+      turnTransitionPromptOpen = false;
+      if (!confirmed || state.activePlayer !== "player") return;
 
       if (btn.dataset.bfPhase === "battle") {
         state.monstersAttackedThisTurn.clear();
@@ -8487,9 +9061,16 @@ if (lobbyEl) {
   }
 
   drawPromptEl?.addEventListener("click", doDraw);
-  $("[data-player-deck]")?.addEventListener("click", doDraw);
+  $("[data-player-deck]")?.addEventListener("click", () => {
+    if (isCompactInteractionMode()) {
+      openDeckMenu(playerDeckPile);
+      return;
+    }
+    doDraw();
+  });
   $("[data-player-deck]")?.addEventListener("contextmenu", (event) => {
     event.preventDefault();
+    if (isCompactInteractionMode()) return;
     openDeckMenu(playerDeckPile);
   });
 
@@ -8512,12 +9093,24 @@ if (lobbyEl) {
   document.addEventListener("keydown", (event) => {
     if (event.key === "Escape" && gyDialogEl && !gyDialogEl.hidden) closeGraveyardDialog();
     if (event.key === "Escape" && _deckDialogEl) closeDeckDialog();
+    if (event.key === "Escape") closeMobileSidebar();
+    if (event.key === "Escape") closeCardHoldPreview();
   });
   document.addEventListener("pointermove", updateAttackIconAim);
 
   // End Turn button
-  endTurnBtn?.addEventListener("click", () => {
+  endTurnBtn?.addEventListener("click", async () => {
     if (state.activePlayer !== "player") return;
+    if (turnTransitionPromptOpen) return;
+    turnTransitionPromptOpen = true;
+    const confirmed = await promptTrapDecision(
+      "End Turn?",
+      "Finish your turn and pass control to your opponent?",
+      "End Turn",
+      "Stay"
+    );
+    turnTransitionPromptOpen = false;
+    if (!confirmed || state.activePlayer !== "player") return;
     endPlayerTurn();
   });
 
@@ -9059,7 +9652,9 @@ if (lobbyEl) {
 
     let decks, cards;
     try {
-      [decks, cards] = await Promise.all([store.getMyDecks(), store.getMyCards()]);
+      const library = await store.getLibrary();
+      decks = library.decks;
+      cards = library.cards;
     } catch {
       showStatus("Failed to load deck data — check the server.", 8000);
       return;
