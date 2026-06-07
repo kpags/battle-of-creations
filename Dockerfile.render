@@ -11,17 +11,15 @@ FROM node:22-alpine
 RUN apk add --no-cache \
       postgresql16 \
       postgresql16-client \
-      redis \
       su-exec \
-      tini \
-    && addgroup node redis
+      tini
 
 WORKDIR /app
 
 COPY --from=dependencies /app/node_modules ./node_modules
 COPY . .
 
-RUN chmod +x /app/scripts/render-all-in-one.sh \
+RUN chmod +x /app/scripts/render-app-database.sh \
     && mkdir -p /var/data /app/data \
     && chown -R node:node /app
 
@@ -31,10 +29,9 @@ ENV NODE_ENV=production \
     POSTGRES_DB=battle_of_creations \
     POSTGRES_USER=boc \
     PGPORT=5432 \
-    REDIS_MAXMEMORY=64mb \
     MEDIA_DIR=/var/data/media \
     PG_POOL_MAX=10
 
 EXPOSE 10000
 
-ENTRYPOINT ["/sbin/tini", "--", "/app/scripts/render-all-in-one.sh"]
+ENTRYPOINT ["/sbin/tini", "--", "/app/scripts/render-app-database.sh"]

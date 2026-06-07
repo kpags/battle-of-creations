@@ -1,0 +1,15 @@
+FROM redis:7-alpine
+
+COPY scripts/render-redis.sh /usr/local/bin/render-redis
+RUN apk add --no-cache su-exec \
+    && chmod +x /usr/local/bin/render-redis \
+    && mkdir -p /var/data \
+    && chown -R redis:redis /var/data
+
+ENV PORT=6379 \
+    REDIS_DATA_DIR=/var/data \
+    REDIS_MAXMEMORY=64mb
+
+EXPOSE 6379
+
+ENTRYPOINT ["/usr/local/bin/render-redis"]

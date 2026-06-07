@@ -47,41 +47,41 @@ docker compose down -v
 
 `docker compose down -v` permanently removes the PostgreSQL, Redis, and media volumes.
 
-## Render: Single-Container Deployment
+## Render Deployment
 
-Render does not run Docker Compose. Use `Dockerfile.render` when you need the
-Node app, PostgreSQL, and Redis in one Render web service.
+Render does not run Docker Compose. The Render deployment is split into:
+
+- `Dockerfile.render`: Node app and PostgreSQL web service
+- `Dockerfile.redis`: private Redis service
+- `render.yaml`: Blueprint networking, secrets, and persistent disks
 
 The included `render.yaml` Blueprint configures:
 
-- the all-in-one Docker image
+- the app/database Docker image
+- the private Redis Docker image
 - `/api/health` as the health check
-- a generated PostgreSQL password
-- a persistent disk mounted at `/var/data`
+- generated PostgreSQL and Redis passwords
+- separate persistent disks for PostgreSQL/media and Redis
+- private-network Redis host and port injection
 
 To deploy:
 
 1. Push the repository to GitHub or GitLab.
 2. In Render, create a new Blueprint and select this repository.
-3. Review the `starter` service and 10 GB disk costs.
+3. Review the two `starter` services and persistent-disk costs.
 4. Apply the Blueprint.
 
-For a manually created Render web service, choose Docker and set the Dockerfile
-path to `./Dockerfile.render`. Add a persistent disk mounted at `/var/data`,
-set `POSTGRES_PASSWORD` to a strong secret, and use `/api/health` as the health
-check path.
+For manual deployment, create a private service from `Dockerfile.redis` first.
+Mount its disk at `/var/data`, generate `REDIS_PASSWORD`, and note its internal
+host and port. Then create the web service from `Dockerfile.render`, mount its
+disk at `/var/data`, and configure `REDIS_HOST`, `REDIS_PORT`, and the same
+`REDIS_PASSWORD`. Use `/api/health` as the web-service health check.
 
-The persistent disk is required. Without it, PostgreSQL, Redis task data, and
-uploaded media are deleted whenever Render restarts or redeploys the service.
+The persistent disks are required. Without them, PostgreSQL, Redis task data,
+and uploaded media are deleted whenever Render restarts or redeploys a service.
 
-This all-in-one deployment is convenient but cannot scale horizontally and
-shares memory and CPU among the app, PostgreSQL, and Redis. For higher traffic,
-use the regular `Dockerfile` for the app plus Render Postgres and Render Key
-Value as separate managed services.
-
-The bundled PostgreSQL and Redis processes use Unix sockets and do not expose
-TCP ports. This ensures Render detects only the Node web server during port
-discovery.
+PostgreSQL remains private inside the web container through a Unix socket.
+Redis exposes its protocol port only through Render's private service network.
 
 After deploying, the logs should show `PostgreSQL database is ready`, followed
 by `Starting the Battle of Creations app`. If Render still reports no open

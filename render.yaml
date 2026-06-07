@@ -22,9 +22,43 @@ services:
         value: /var/data
       - key: PG_POOL_MAX
         value: "10"
-      - key: REDIS_MAXMEMORY
-        value: 64mb
+      - key: REDIS_HOST
+        fromService:
+          type: pserv
+          name: battle-of-creations-redis
+          property: host
+      - key: REDIS_PORT
+        fromService:
+          type: pserv
+          name: battle-of-creations-redis
+          property: port
+      - key: REDIS_PASSWORD
+        fromService:
+          type: pserv
+          name: battle-of-creations-redis
+          envVarKey: REDIS_PASSWORD
     disk:
       name: battle-of-creations-data
       mountPath: /var/data
       sizeGB: 10
+
+  - type: pserv
+    name: battle-of-creations-redis
+    runtime: docker
+    plan: starter
+    dockerfilePath: ./Dockerfile.redis
+    dockerContext: .
+    maxShutdownDelaySeconds: 60
+    envVars:
+      - key: PORT
+        value: "6379"
+      - key: REDIS_PASSWORD
+        generateValue: true
+      - key: REDIS_DATA_DIR
+        value: /var/data
+      - key: REDIS_MAXMEMORY
+        value: 64mb
+    disk:
+      name: battle-of-creations-redis-data
+      mountPath: /var/data
+      sizeGB: 1
