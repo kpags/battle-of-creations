@@ -47,42 +47,33 @@ docker compose down -v
 
 `docker compose down -v` permanently removes the PostgreSQL, Redis, and media volumes.
 
-## Render Deployment
+## Render Free Deployment
 
-Render does not run Docker Compose. The Render deployment is split into:
+The included `render.yaml` creates a no-disk Render deployment:
 
-- `Dockerfile.render`: Node app and PostgreSQL web service
-- `Dockerfile.redis`: private Redis service
-- `render.yaml`: Blueprint networking, secrets, and persistent disks
+- a Free web service using the app-only `Dockerfile`
+- a Free Render Postgres database
+- a Free Render Key Value instance for Redis-compatible tasks and caching
 
-The included `render.yaml` Blueprint configures:
+Push the repository, create or update a Render Blueprint, and apply
+`render.yaml`. The app receives `DATABASE_URL` and `REDIS_URL` automatically.
 
-- the app/database Docker image
-- the private Redis Docker image
-- `/api/health` as the health check
-- generated PostgreSQL and Redis passwords
-- separate persistent disks for PostgreSQL/media and Redis
-- private-network Redis host and port injection
+If updating an existing manually configured service:
 
-To deploy:
+1. Set its Dockerfile path to `./Dockerfile`.
+2. Remove `REDIS_HOST`, `REDIS_PORT`, `REDIS_PASSWORD`, and
+   `REDIS_SOCKET_PATH`.
+3. Connect `DATABASE_URL` to the managed Postgres internal URL.
+4. Connect `REDIS_URL` to the managed Key Value internal URL.
+5. Remove the paid persistent disk, then clear the build cache and redeploy.
 
-1. Push the repository to GitHub or GitLab.
-2. In Render, create a new Blueprint and select this repository.
-3. Review the two `starter` services and persistent-disk costs.
-4. Apply the Blueprint.
+Free Render limitations:
 
-For manual deployment, create a private service from `Dockerfile.redis` first.
-Mount its disk at `/var/data`, generate `REDIS_PASSWORD`, and note its internal
-host and port. Then create the web service from `Dockerfile.render`, mount its
-disk at `/var/data`, and configure `REDIS_HOST`, `REDIS_PORT`, and the same
-`REDIS_PASSWORD`. Use `/api/health` as the web-service health check.
+- Free Postgres expires 30 days after creation.
+- Free Key Value does not persist queued task or cache data across restarts.
+- The Free web-service filesystem is ephemeral, so uploaded card and deck
+  images stored under `/tmp` can disappear after a restart or redeploy.
+- Free web services spin down after periods without traffic.
 
-The persistent disks are required. Without them, PostgreSQL, Redis task data,
-and uploaded media are deleted whenever Render restarts or redeploys a service.
-
-PostgreSQL remains private inside the web container through a Unix socket.
-Redis exposes its protocol port only through Render's private service network.
-
-After deploying, the logs should show `PostgreSQL database is ready`, followed
-by `Starting the Battle of Creations app`. If Render still reports no open
-ports, redeploy with the build cache cleared so the updated entrypoint is used.
+For permanent production data, use paid Render storage or external durable
+Postgres and object-storage providers.

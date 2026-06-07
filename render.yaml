@@ -2,63 +2,38 @@ services:
   - type: web
     name: battle-of-creations
     runtime: docker
-    plan: starter
-    dockerfilePath: ./Dockerfile.render
+    plan: free
+    dockerfilePath: ./Dockerfile
     dockerContext: .
     healthCheckPath: /api/health
-    maxShutdownDelaySeconds: 60
     envVars:
       - key: NODE_ENV
         value: production
       - key: COOKIE_SECURE
         value: "true"
-      - key: POSTGRES_DB
-        value: battle_of_creations
-      - key: POSTGRES_USER
-        value: boc
-      - key: POSTGRES_PASSWORD
-        generateValue: true
-      - key: DATA_ROOT
-        value: /var/data
+      - key: DATABASE_URL
+        fromDatabase:
+          name: battle-of-creations-db
+          property: connectionString
+      - key: REDIS_URL
+        fromService:
+          type: keyvalue
+          name: battle-of-creations-cache
+          property: connectionString
       - key: PG_POOL_MAX
-        value: "10"
-      - key: REDIS_HOST
-        fromService:
-          type: pserv
-          name: battle-of-creations-redis
-          property: host
-      - key: REDIS_PORT
-        fromService:
-          type: pserv
-          name: battle-of-creations-redis
-          property: port
-      - key: REDIS_PASSWORD
-        fromService:
-          type: pserv
-          name: battle-of-creations-redis
-          envVarKey: REDIS_PASSWORD
-    disk:
-      name: battle-of-creations-data
-      mountPath: /var/data
-      sizeGB: 10
+        value: "5"
+      - key: MEDIA_DIR
+        value: /tmp/battle-of-creations-media
 
-  - type: pserv
-    name: battle-of-creations-redis
-    runtime: docker
-    plan: starter
-    dockerfilePath: ./Dockerfile.redis
-    dockerContext: .
-    maxShutdownDelaySeconds: 60
-    envVars:
-      - key: PORT
-        value: "6379"
-      - key: REDIS_PASSWORD
-        generateValue: true
-      - key: REDIS_DATA_DIR
-        value: /var/data
-      - key: REDIS_MAXMEMORY
-        value: 64mb
-    disk:
-      name: battle-of-creations-redis-data
-      mountPath: /var/data
-      sizeGB: 1
+  - type: keyvalue
+    name: battle-of-creations-cache
+    plan: free
+    ipAllowList: []
+    maxmemoryPolicy: noeviction
+
+databases:
+  - name: battle-of-creations-db
+    plan: free
+    databaseName: battle_of_creations
+    user: boc
+    ipAllowList: []

@@ -1,6 +1,7 @@
 const { createClient } = require("redis");
 
-const REDIS_URL = process.env.REDIS_URL || "redis://127.0.0.1:6379";
+const CONFIGURED_REDIS_URL = String(process.env.REDIS_URL || "").trim();
+const REDIS_URL = CONFIGURED_REDIS_URL || "redis://127.0.0.1:6379";
 const REDIS_SOCKET_PATH = String(process.env.REDIS_SOCKET_PATH || "").trim();
 const REDIS_HOST = String(process.env.REDIS_HOST || "").trim();
 const REDIS_PORT = Number(process.env.REDIS_PORT || 6379);
@@ -16,7 +17,9 @@ const MAX_ACTIVE_TASKS_PER_USER = Number(process.env.MAX_ACTIVE_TASKS_PER_USER |
 const redis = createClient(
   REDIS_SOCKET_PATH
     ? { socket: { path: REDIS_SOCKET_PATH } }
-    : REDIS_HOST
+    : CONFIGURED_REDIS_URL
+      ? { url: CONFIGURED_REDIS_URL }
+      : REDIS_HOST
       ? {
           socket: {
             host: REDIS_HOST,
