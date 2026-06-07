@@ -82,3 +82,7 @@ Value as separate managed services.
 The bundled PostgreSQL and Redis processes use Unix sockets and do not expose
 TCP ports. This ensures Render detects only the Node web server during port
 discovery.
+
+After deploying, the logs should show `PostgreSQL database is ready`, followed
+by `Starting the Battle of Creations app`. If Render still reports no open
+ports, redeploy with the build cache cleared so the updated entrypoint is used.

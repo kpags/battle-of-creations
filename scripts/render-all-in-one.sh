@@ -132,32 +132,28 @@ until redis-cli -s "$REDIS_SOCKET_PATH" ping >/dev/null 2>&1; do
   sleep 1
 done
 
-# Keep the persisted database credential aligned with the Render secret.
-escaped_password="$(printf '%s' "$POSTGRES_PASSWORD" | sed "s/'/''/g")"
-su-exec postgres psql \
+echo "PostgreSQL and Redis are ready."
+echo "Preparing PostgreSQL database $POSTGRES_DB..."
+
+database_exists="$(PGCONNECT_TIMEOUT=5 timeout 10 su-exec postgres psql \
   -h /run/postgresql \
   -p "$PGPORT" \
   -U "$POSTGRES_USER" \
   -d postgres \
   -v ON_ERROR_STOP=1 \
-  -c "ALTER ROLE \"$POSTGRES_USER\" WITH PASSWORD '$escaped_password';" >/dev/null
-
-database_exists="$(su-exec postgres psql \
-  -h /run/postgresql \
-  -p "$PGPORT" \
-  -U "$POSTGRES_USER" \
-  -d postgres \
   -tAc "SELECT 1 FROM pg_database WHERE datname = '$POSTGRES_DB';")"
 
 if [ "$database_exists" != "1" ]; then
   echo "Creating PostgreSQL database $POSTGRES_DB"
-  su-exec postgres createdb \
+  PGCONNECT_TIMEOUT=5 timeout 10 su-exec postgres createdb \
     -h /run/postgresql \
     -p "$PGPORT" \
     -U "$POSTGRES_USER" \
     --owner="$POSTGRES_USER" \
     "$POSTGRES_DB"
 fi
+
+echo "PostgreSQL database is ready."
 
 export PGHOST=/run/postgresql
 export PGPORT
