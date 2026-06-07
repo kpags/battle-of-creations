@@ -1,0 +1,13 @@
+.git
+.gitignore
+.codex*
+.env
+node_modules
+npm-debug.log*
+data
+output
+screenshots
+server.out.log
+server.err.log
+*.tmp
+*.bak

@@ -3,6 +3,8 @@ data/media/
 data/*.sessions.json
 data/*.tmp
 data/*.bak
+node_modules/
+.env
 output/
 server.err.log
 server.out.log
