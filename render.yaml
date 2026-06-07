@@ -1,0 +1,30 @@
+services:
+  - type: web
+    name: battle-of-creations
+    runtime: docker
+    plan: starter
+    dockerfilePath: ./Dockerfile.render
+    dockerContext: .
+    healthCheckPath: /api/health
+    maxShutdownDelaySeconds: 60
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: COOKIE_SECURE
+        value: "true"
+      - key: POSTGRES_DB
+        value: battle_of_creations
+      - key: POSTGRES_USER
+        value: boc
+      - key: POSTGRES_PASSWORD
+        generateValue: true
+      - key: DATA_ROOT
+        value: /var/data
+      - key: PG_POOL_MAX
+        value: "10"
+      - key: REDIS_MAXMEMORY
+        value: 64mb
+    disk:
+      name: battle-of-creations-data
+      mountPath: /var/data
+      sizeGB: 10

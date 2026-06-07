@@ -46,3 +46,35 @@ docker compose down -v
 ```
 
 `docker compose down -v` permanently removes the PostgreSQL, Redis, and media volumes.
+
+## Render: Single-Container Deployment
+
+Render does not run Docker Compose. Use `Dockerfile.render` when you need the
+Node app, PostgreSQL, and Redis in one Render web service.
+
+The included `render.yaml` Blueprint configures:
+
+- the all-in-one Docker image
+- `/api/health` as the health check
+- a generated PostgreSQL password
+- a persistent disk mounted at `/var/data`
+
+To deploy:
+
+1. Push the repository to GitHub or GitLab.
+2. In Render, create a new Blueprint and select this repository.
+3. Review the `starter` service and 10 GB disk costs.
+4. Apply the Blueprint.
+
+For a manually created Render web service, choose Docker and set the Dockerfile
+path to `./Dockerfile.render`. Add a persistent disk mounted at `/var/data`,
+set `POSTGRES_PASSWORD` to a strong secret, and use `/api/health` as the health
+check path.
+
+The persistent disk is required. Without it, PostgreSQL, Redis task data, and
+uploaded media are deleted whenever Render restarts or redeploys the service.
+
+This all-in-one deployment is convenient but cannot scale horizontally and
+shares memory and CPU among the app, PostgreSQL, and Redis. For higher traffic,
+use the regular `Dockerfile` for the app plus Render Postgres and Render Key
+Value as separate managed services.
