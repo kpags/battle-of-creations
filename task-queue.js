@@ -1,6 +1,7 @@
 const { createClient } = require("redis");
 
 const REDIS_URL = process.env.REDIS_URL || "redis://127.0.0.1:6379";
+const REDIS_SOCKET_PATH = String(process.env.REDIS_SOCKET_PATH || "").trim();
 const TASK_PREFIX = "boc:task:";
 const USER_TASK_PREFIX = "boc:user-tasks:";
 const QUEUE_KEY = "boc:tasks:queue";
@@ -9,7 +10,11 @@ const TASK_RETENTION_SECONDS = Number(process.env.TASK_RETENTION_SECONDS || 3600
 const ACTIVE_TASK_SECONDS = Number(process.env.ACTIVE_TASK_SECONDS || 86400);
 const MAX_ACTIVE_TASKS_PER_USER = Number(process.env.MAX_ACTIVE_TASKS_PER_USER || 2);
 
-const redis = createClient({ url: REDIS_URL });
+const redis = createClient(
+  REDIS_SOCKET_PATH
+    ? { socket: { path: REDIS_SOCKET_PATH } }
+    : { url: REDIS_URL }
+);
 const workerRedis = redis.duplicate();
 let workerRunning = false;
 let workerPromise = null;

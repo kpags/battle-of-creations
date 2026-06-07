@@ -13,7 +13,8 @@ RUN apk add --no-cache \
       postgresql16-client \
       redis \
       su-exec \
-      tini
+      tini \
+    && addgroup node redis
 
 WORKDIR /app
 
@@ -28,10 +29,8 @@ ENV NODE_ENV=production \
     PORT=10000 \
     DATA_ROOT=/var/data \
     POSTGRES_DB=battle_of_creations \
-    POSTGRES_PASSWORD=!Qaz2wsx \
     POSTGRES_USER=boc \
     PGPORT=5432 \
-    REDIS_PORT=6379 \
     REDIS_MAXMEMORY=64mb \
     MEDIA_DIR=/var/data/media \
     PG_POOL_MAX=10

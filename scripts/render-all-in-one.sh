@@ -11,7 +11,8 @@ MEDIA_DIR="${MEDIA_DIR:-$DATA_ROOT/media}"
 POSTGRES_DB="${POSTGRES_DB:-battle_of_creations}"
 POSTGRES_USER="${POSTGRES_USER:-boc}"
 PGPORT="${PGPORT:-5432}"
-REDIS_PORT="${REDIS_PORT:-6379}"
+REDIS_SOCKET_DIR="${REDIS_SOCKET_DIR:-/run/redis}"
+REDIS_SOCKET_PATH="${REDIS_SOCKET_PATH:-$REDIS_SOCKET_DIR/redis.sock}"
 REDIS_MAXMEMORY="${REDIS_MAXMEMORY:-64mb}"
 
 case "$POSTGRES_USER" in
@@ -28,11 +29,12 @@ case "$POSTGRES_DB" in
     ;;
 esac
 
-mkdir -p "$PGDATA" "$REDIS_DATA_DIR" "$MEDIA_DIR" /run/postgresql
+mkdir -p "$PGDATA" "$REDIS_DATA_DIR" "$MEDIA_DIR" /run/postgresql "$REDIS_SOCKET_DIR"
 chown -R postgres:postgres "$PGDATA" /run/postgresql
-chown -R redis:redis "$REDIS_DATA_DIR"
+chown -R redis:redis "$REDIS_DATA_DIR" "$REDIS_SOCKET_DIR"
 chown -R node:node "$MEDIA_DIR"
 chmod 700 "$PGDATA"
+chmod 770 "$REDIS_SOCKET_DIR"
 
 if [ ! -s "$PGDATA/PG_VERSION" ]; then
   password_file="$(mktemp)"
@@ -88,7 +90,7 @@ su-exec postgres postgres \
   -D "$PGDATA" \
   -p "$PGPORT" \
   -k /run/postgresql \
-  -c listen_addresses=127.0.0.1 \
+  -c listen_addresses= \
   -c max_connections=40 \
   -c shared_buffers=64MB \
   -c work_mem=2MB \
@@ -97,9 +99,9 @@ POSTGRES_PID=$!
 
 echo "Starting Redis..."
 su-exec redis redis-server \
-  --bind 127.0.0.1 \
-  --protected-mode yes \
-  --port "$REDIS_PORT" \
+  --port 0 \
+  --unixsocket "$REDIS_SOCKET_PATH" \
+  --unixsocketperm 770 \
   --dir "$REDIS_DATA_DIR" \
   --appendonly yes \
   --appendfsync everysec \
@@ -120,7 +122,7 @@ until pg_isready -q -h /run/postgresql -p "$PGPORT" -U "$POSTGRES_USER" -d postg
 done
 
 attempt=0
-until redis-cli -h 127.0.0.1 -p "$REDIS_PORT" ping >/dev/null 2>&1; do
+until redis-cli -s "$REDIS_SOCKET_PATH" ping >/dev/null 2>&1; do
   attempt=$((attempt + 1))
   if [ "$attempt" -ge 60 ] || ! kill -0 "$REDIS_PID" 2>/dev/null; then
     echo "Redis failed to become ready." >&2
@@ -157,12 +159,14 @@ if [ "$database_exists" != "1" ]; then
     "$POSTGRES_DB"
 fi
 
-export PGHOST=127.0.0.1
+export PGHOST=/run/postgresql
 export PGPORT
 export PGDATABASE="$POSTGRES_DB"
 export PGUSER="$POSTGRES_USER"
 export PGPASSWORD="$POSTGRES_PASSWORD"
-export REDIS_URL="redis://127.0.0.1:$REDIS_PORT"
+export REDIS_SOCKET_PATH
+unset DATABASE_URL
+unset REDIS_URL
 export MEDIA_DIR
 
 echo "Starting the Battle of Creations app on port ${PORT:-10000}..."

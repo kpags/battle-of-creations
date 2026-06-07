@@ -78,3 +78,7 @@ This all-in-one deployment is convenient but cannot scale horizontally and
 shares memory and CPU among the app, PostgreSQL, and Redis. For higher traffic,
 use the regular `Dockerfile` for the app plus Render Postgres and Render Key
 Value as separate managed services.
+
+The bundled PostgreSQL and Redis processes use Unix sockets and do not expose
+TCP ports. This ensures Render detects only the Node web server during port
+discovery.
