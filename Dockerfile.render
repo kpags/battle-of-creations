@@ -28,6 +28,7 @@ ENV NODE_ENV=production \
     PORT=10000 \
     DATA_ROOT=/var/data \
     POSTGRES_DB=battle_of_creations \
+    POSTGRES_PASSWORD=!Qaz2wsx \
     POSTGRES_USER=boc \
     PGPORT=5432 \
     REDIS_PORT=6379 \
